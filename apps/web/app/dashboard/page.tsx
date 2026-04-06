@@ -648,7 +648,7 @@ export default function DashboardPage() {
                           await fetch(`/api/style-profiles/${profileId}/sources`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ s3Key: key, fileName: file.name }),
+                            body: JSON.stringify({ s3Key: key, fileName: file.name, fileSize: file.size }),
                           });
                         }
 
