@@ -14,7 +14,6 @@ __pycache__/
 .proxy-venv/
 *.pptx
 /tmp/
-pnpm-lock.yaml
 package-lock.json
 uv.lock
 .claude/
