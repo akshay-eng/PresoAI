@@ -5,7 +5,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    libreoffice \
+    libreoffice-impress \
     && rm -rf /var/lib/apt/lists/*
+
+ENV LIBREOFFICE_PATH=/usr/bin/soffice
 
 COPY workers/python-agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
