@@ -19,6 +19,9 @@ COPY --from=deps /app/ ./
 COPY apps/web ./apps/web
 COPY packages ./packages
 RUN pnpm --filter @slideforge/db run generate
+RUN pnpm --filter @slideforge/db run build
+RUN pnpm --filter @slideforge/queue run build
+RUN pnpm --filter @slideforge/shared run build
 WORKDIR /app/apps/web
 RUN mkdir -p .next/cache/webpack .next/server
 RUN pnpm build
