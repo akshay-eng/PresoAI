@@ -23,6 +23,9 @@ lxml>=5.0.0,<6.0
 # BullMQ
 bullmq>=2.20.0,<3.0
 
+# HTTP client
+aiohttp>=3.10.0,<4.0
+
 # Infrastructure
 boto3>=1.35.0,<2.0
 redis>=5.2.0
