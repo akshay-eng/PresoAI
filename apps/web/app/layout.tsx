@@ -1,18 +1,24 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Pacifico } from "next/font/google";
+import localFont from "next/font/local";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
+// Use local system font stacks — avoids Google Fonts network calls in Docker builds
+const jakarta = localFont({
+  src: [
+    { path: "../public/fonts/PlusJakartaSans-Variable.woff2", style: "normal" },
+    { path: "../public/fonts/PlusJakartaSans-Variable-Italic.woff2", style: "italic" },
+  ],
   variable: "--font-sans",
+  display: "swap",
+  fallback: ["system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
 });
 
-const pacifico = Pacifico({
-  weight: "400",
-  subsets: ["latin"],
+const logoFont = localFont({
+  src: [{ path: "../public/fonts/Pacifico-Regular.woff2", style: "normal" }],
   variable: "--font-logo",
   display: "swap",
+  fallback: ["cursive", "serif"],
 });
 
 export const metadata: Metadata = {
@@ -34,7 +40,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${jakarta.className} ${jakarta.variable} ${pacifico.variable}`}>
+      <body className={`${jakarta.className} ${jakarta.variable} ${logoFont.variable}`}>
         <Providers>{children}</Providers>
       </body>
     </html>

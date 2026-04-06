@@ -58,8 +58,8 @@ export const {
           MicrosoftEntraID({
             clientId: process.env.MICROSOFT_CLIENT_ID,
             clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
-            tenantId: process.env.MICROSOFT_TENANT_ID || "common",
-          }),
+            issuer: `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID || "common"}/v2.0`,
+          } as Parameters<typeof MicrosoftEntraID>[0]),
         ]
       : []),
   ],
@@ -136,8 +136,8 @@ export const {
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { id: string }).id = token.userId as string;
-        (session.user as { role: string }).role = token.role as string;
+        (session.user as unknown as { id: string }).id = token.userId as string;
+        (session.user as unknown as { role: string }).role = token.role as string;
       }
       return session;
     },
