@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, FileText, Trash2, Clock, Send, Presentation,
-  BarChart3, Users, Lightbulb, Upload, Palette, Brain, Settings2, Loader2,
+  BarChart3, Users, Lightbulb, Upload, Palette, Brain, Settings2, Loader2, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,18 @@ export default function DashboardPage() {
   const modelList = (Array.isArray(modelsData) ? modelsData : (modelsData?.models || [])) as Array<{
     id: string; name: string; provider: string; isDefault: boolean;
   }>;
+
+  // Load style profiles
+  const { data: styleProfiles = [] } = useQuery({
+    queryKey: ["style-profiles"],
+    queryFn: async () => {
+      const r = await fetch("/api/style-profiles");
+      if (!r.ok) return [];
+      return r.json() as Promise<Array<{ id: string; name: string; status: string }>>;
+    },
+  });
+  const readyProfiles = (styleProfiles as Array<{ id: string; name: string; status: string }>).filter((p) => p.status === "ready");
+  const [selectedProfileId, setSelectedProfileId] = useState("");
 
   // Auto-select default model
   useEffect(() => {
@@ -303,8 +315,27 @@ export default function DashboardPage() {
                             </div>
                           </div>
 
+                          {/* Style Profile */}
+                          {readyProfiles.length > 0 && (
+                            <div>
+                              <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1 mb-1">
+                                <Sparkles className="h-3 w-3" /> Style Profile
+                              </label>
+                              <select
+                                value={selectedProfileId}
+                                onChange={(e) => setSelectedProfileId(e.target.value)}
+                                className="w-full h-8 rounded-lg border border-border bg-secondary/50 px-2 text-xs focus:outline-none"
+                              >
+                                <option value="">No style profile</option>
+                                {readyProfiles.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
                           <p className="text-[10px] text-muted-foreground/50 pt-1">
-                            You can add templates, references, and style profiles after creating the project.
+                            Templates and references can be added inside the project.
                           </p>
                         </div>
                       </motion.div>

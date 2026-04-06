@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from tavily import AsyncTavilyClient
 
 from app.config import settings
+from app.services.slide_vision import images_to_base64_messages
 from app.models import (
     LLMConfig,
     PPTGenerationState,
@@ -24,6 +25,44 @@ from app.services.progress import ProgressPublisher
 from app.services.knowledge_graph import KnowledgeGraphService
 
 logger = structlog.get_logger()
+
+
+def _build_visual_context(state: PPTGenerationState) -> list[dict]:
+    """Build multimodal message parts from reference collages and chat images.
+
+    Returns a list of content parts (text + image_url dicts) that can be
+    appended to a HumanMessage's content to make it multimodal.
+    """
+    parts: list[dict] = []
+
+    # Reference PPTX visual collages (created in process_references)
+    ref_visual = state.get("reference_visual_parts", [])
+    if ref_visual:
+        parts.append({"type": "text", "text": "\n\n## Visual Reference (from uploaded PPTX slides — match this style):"})
+        parts.extend(ref_visual)
+
+    # Chat images (pasted by user)
+    chat_keys = state.get("chat_image_keys", [])
+    if chat_keys:
+        from app.services.s3 import S3Service
+        import base64
+        s3 = S3Service()
+        parts.append({"type": "text", "text": "\n\n## User-provided reference images:"})
+        for i, key in enumerate(chat_keys[:5]):  # Max 5 images
+            try:
+                data = s3.download_bytes(key)
+                b64 = base64.b64encode(data).decode("utf-8")
+                fmt = "jpeg" if data[:2] == b'\xff\xd8' else "png"
+                parts.append({"type": "text", "text": f"\n[User image {i + 1}]"})
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/{fmt};base64,{b64}", "detail": "high"},
+                })
+            except Exception as e:
+                logger.warn("chat_image_download_failed", key=key, error=str(e))
+
+    return parts
+
 
 # ─── Design guidelines from pptx skill ───
 PPTX_DESIGN_GUIDELINES = """
@@ -122,16 +161,42 @@ async def process_references(state: PPTGenerationState) -> dict:
         logger.info("no_reference_files")
         await publisher.publish("process_references", 0.2, "No reference files to process")
         await publisher.close()
-        return {"reference_context": "", "current_phase": "process_references"}
+        return {"reference_context": "", "reference_visual_parts": [], "current_phase": "process_references"}
+
+    from app.services.slide_vision import pptx_to_images, create_collages, images_to_base64_messages
+    from app.services.s3 import S3Service
 
     extractor = ReferenceExtractor()
+    s3 = S3Service()
     all_texts: list[str] = []
+    all_visual_parts: list[dict] = []
 
     for i, key in enumerate(ref_keys):
         try:
             suffix = key.rsplit(".", 1)[-1] if "." in key else "txt"
             text, _ = extractor.extract(key, suffix)
             all_texts.append(text)
+
+            # For PPTX files: also create visual collages for the LLM
+            if suffix.lower() in ("pptx", "ppt"):
+                try:
+                    tmp_path = s3.download_to_temp(key, f".{suffix}")
+                    slide_images = pptx_to_images(tmp_path, max_slides=16)
+                    if slide_images:
+                        collages = create_collages(slide_images)
+                        labels = [
+                            f"Reference slides {j * 4 + 1}-{min(j * 4 + 4, len(slide_images))}"
+                            for j in range(len(collages))
+                        ]
+                        # Use detail="low" for collages to save tokens (~85 tokens each)
+                        visual_parts = images_to_base64_messages(collages, labels=labels, detail="low")
+                        all_visual_parts.extend(visual_parts)
+                        logger.info("reference_visual_collages_created", key=key, slides=len(slide_images), collages=len(collages))
+                    import os
+                    os.unlink(tmp_path)
+                except Exception as ve:
+                    logger.warn("reference_visual_extraction_failed", key=key, error=str(ve))
+
             progress = 0.15 + (0.05 * (i + 1) / len(ref_keys))
             await publisher.publish(
                 "process_references",
@@ -143,7 +208,7 @@ async def process_references(state: PPTGenerationState) -> dict:
 
     combined = "\n\n---\n\n".join(all_texts)
     await publisher.close()
-    return {"reference_context": combined, "current_phase": "process_references"}
+    return {"reference_context": combined, "reference_visual_parts": all_visual_parts, "current_phase": "process_references"}
 
 
 async def query_generator(state: PPTGenerationState) -> dict:
@@ -369,16 +434,28 @@ async def content_planner(state: PPTGenerationState) -> dict:
             f"{style_context}"
             f"{kg_section}"
         )),
-        HumanMessage(content=(
-            f"Topic: {prompt}\n"
-            f"Number of slides: {num_slides}\n"
-            f"Audience: {audience}\n\n"
-            f"STRUCTURED RESEARCH CONTENT:\n{summary[:5000]}\n\n"
-            f"Create an outline with exactly {num_slides} slides. "
-            "USE THE SPECIFIC DATA from the research — include real numbers, stats, and comparisons. "
-            "Don't make generic points when you have specific data available."
-        )),
     ]
+
+    # Build the human message — add visual context if available
+    human_text = (
+        f"Topic: {prompt}\n"
+        f"Number of slides: {num_slides}\n"
+        f"Audience: {audience}\n\n"
+        f"STRUCTURED RESEARCH CONTENT:\n{summary[:5000]}\n\n"
+        f"Create an outline with exactly {num_slides} slides. "
+        "USE THE SPECIFIC DATA from the research — include real numbers, stats, and comparisons. "
+        "Don't make generic points when you have specific data available."
+    )
+
+    visual_parts = _build_visual_context(state)
+    if visual_parts:
+        # Multimodal message: text + images
+        content_parts: list = [{"type": "text", "text": human_text}]
+        content_parts.extend(visual_parts)
+        content_parts.append({"type": "text", "text": "\nUse the visual layout patterns from these reference images to inform your outline structure."})
+        messages.append(HumanMessage(content=content_parts))
+    else:
+        messages.append(HumanMessage(content=human_text))
 
     try:
         result = await structured_llm.ainvoke(messages)
@@ -565,18 +642,29 @@ async def slide_writer(state: PPTGenerationState) -> dict:
             "  Create fresh option objects for each addShape/addText call — never reuse.\n\n"
             f"Target audience: {audience}.\n"
         )),
-        HumanMessage(content=(
-            f"Create {num_slides} CATALOGUE-QUALITY slides for:\n\n"
-            f"Topic: {prompt}\n"
-            f"Audience: {audience}\n\n"
-            f"Slide outline:\n{outline_text}\n\n"
-            f"Research context:\n{summary[:2000]}\n\n"
-            "IMPORTANT: Make these slides look like they came from a premium design agency. "
-            "Use colored backgrounds, card layouts, accent bars, stat callouts, and visual hierarchy. "
-            "Every slide must have shapes and color — NO plain text on white background. "
-            "Output the JSON array."
-        )),
     ]
+
+    # Build slide_writer human message with visual context
+    human_text = (
+        f"Create {num_slides} CATALOGUE-QUALITY slides for:\n\n"
+        f"Topic: {prompt}\n"
+        f"Audience: {audience}\n\n"
+        f"Slide outline:\n{outline_text}\n\n"
+        f"Research context:\n{summary[:2000]}\n\n"
+        "IMPORTANT: Make these slides look like they came from a premium design agency. "
+        "Use colored backgrounds, card layouts, accent bars, stat callouts, and visual hierarchy. "
+        "Every slide must have shapes and color — NO plain text on white background. "
+        "Output the JSON array."
+    )
+
+    visual_parts = _build_visual_context(state)
+    if visual_parts:
+        content_parts: list = [{"type": "text", "text": human_text}]
+        content_parts.extend(visual_parts)
+        content_parts.append({"type": "text", "text": "\nMatch the visual style, color palette, and layout structure shown in these reference images."})
+        messages.append(HumanMessage(content=content_parts))
+    else:
+        messages.append(HumanMessage(content=human_text))
 
     try:
         result = await llm.ainvoke(messages)

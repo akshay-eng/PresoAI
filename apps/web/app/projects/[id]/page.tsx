@@ -24,6 +24,8 @@ import {
   Palette,
   Brain,
   Paperclip,
+  Eye,
+  PenTool,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,6 +146,8 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [activePanel, setActivePanel] = useState<"none" | "outline" | "plan" | "preview" | "files" | "editor" | "template" | "references" | "model" | "style" | "engine">("none");
   const [editingOutline, setEditingOutline] = useState(false);
   const [editedOutline, setEditedOutline] = useState<typeof outline>([]);
@@ -268,7 +272,16 @@ export default function ProjectPage({ params }: ProjectPageProps) {
 
   const generateMutation = useMutation({
     mutationFn: () =>
-      api.generate(id, { prompt: submittedPrompt, numSlides, audienceType, modelId: selectedModelId, engine }),
+      api.generate(id, {
+        prompt: submittedPrompt,
+        numSlides,
+        audienceType,
+        modelId: selectedModelId,
+        engine,
+        chatImageKeys: chatMessages
+          .filter((m) => m.metadata?.imageKeys)
+          .flatMap((m) => (m.metadata!.imageKeys as string[]) || []),
+      }),
     onSuccess: (data) => {
       setJobId(data.jobId);
       setActivePanel("plan");
@@ -343,24 +356,77 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     e.preventDefault();
     if (!prompt.trim()) return;
 
+    if (!selectedModelId) {
+      toast.error("Please select an AI model first (click + button)");
+      return;
+    }
+
     const currentPrompt = prompt.trim();
 
-    // Save to chat history (persisted to localStorage + server)
+    // Save to chat history
+    const imageKeys = pastedImages.map((img) => img.key);
     addMessage(id, {
       role: "user",
       content: currentPrompt,
-      metadata: { audienceType, numSlides },
+      metadata: { audienceType, numSlides, engine, imageKeys: imageKeys.length > 0 ? imageKeys : undefined },
     });
 
     setSubmittedPrompt(currentPrompt);
     setHasSubmitted(true);
+
+    // Update project with prompt + params
     updateMutation.mutate({ prompt: currentPrompt, numSlides, audienceType });
 
     // Clear the input
     setPrompt("");
+    setPastedImages([]);
     if (textareaRef.current) {
       textareaRef.current.value = "";
       textareaRef.current.style.height = "auto";
+    }
+
+    // Start generation immediately
+    setTimeout(() => generateMutation.mutate(), 100);
+  }
+
+  async function handlePasteImage(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        setUploadingImage(true);
+        try {
+          // Get presigned URL
+          const presignRes = await fetch("/api/upload/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: `pasted-${Date.now()}.png`,
+              contentType: file.type,
+              purpose: "chat-image",
+            }),
+          });
+          if (!presignRes.ok) throw new Error("Presign failed");
+          const { signedUrl, key } = await presignRes.json();
+
+          // Upload to MinIO
+          await fetch(signedUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+
+          // Create preview URL
+          const previewUrl = URL.createObjectURL(file);
+          setPastedImages((prev) => [...prev, { key, previewUrl }]);
+          toast.success("Image attached");
+        } catch (err) {
+          toast.error("Failed to upload image");
+        }
+        setUploadingImage(false);
+        break; // Only handle first image
+      }
     }
   }
 
@@ -425,6 +491,22 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     } catch (err) {
       toast.error(`Failed: ${(err as Error).message}`);
     }
+  }
+
+  // Resolve presentation ID from a chat message (tries job output, then latest project presentation)
+  async function _resolvePresentationId(msg: { metadata?: Record<string, unknown> }): Promise<string | undefined> {
+    try {
+      let presId: string | undefined;
+      if (msg.metadata?.jobId) {
+        const jobData = await api.getJob(msg.metadata.jobId as string) as { output?: { presentationId?: string } };
+        presId = jobData?.output?.presentationId;
+      }
+      if (!presId && p?.presentations?.length) {
+        presId = p.presentations[0]?.id;
+      }
+      if (!presId) { toast.error("No presentation found"); return undefined; }
+      return presId;
+    } catch { toast.error("Could not find presentation"); return undefined; }
   }
 
   function openPanel(panel: typeof activePanel) {
@@ -563,36 +645,54 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     <div className="space-y-1">
                       <p className="text-sm leading-relaxed">{msg.content}</p>
                       {msg.metadata?.phase === "complete" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-2"
-                          onClick={async () => {
-                            try {
-                              let presId: string | undefined;
-                              // Try from job first
-                              if (msg.metadata?.jobId) {
-                                const jobData = await api.getJob(msg.metadata.jobId as string) as { output?: { presentationId?: string } };
-                                presId = jobData?.output?.presentationId;
-                              }
-                              // Fallback: use the latest presentation from the project
-                              if (!presId && p?.presentations?.length) {
-                                presId = p.presentations[0]?.id;
-                              }
-                              if (!presId) { toast.error("No presentation found"); return; }
-                              const res = await fetch(`/api/presentations/${presId}/download`);
-                              if (!res.ok) throw new Error("Download failed");
-                              const { downloadUrl, fileName } = await res.json();
-                              const a = document.createElement("a");
-                              a.href = downloadUrl;
-                              a.download = fileName || "presentation.pptx";
-                              a.click();
-                            } catch (err) { toast.error((err as Error).message); }
-                          }}
-                        >
-                          <Download className="mr-1.5 h-3.5 w-3.5" />
-                          Download PPTX
-                        </Button>
+                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                const presId = await _resolvePresentationId(msg);
+                                if (!presId) return;
+                                const res = await fetch(`/api/presentations/${presId}/download`);
+                                if (!res.ok) throw new Error("Download failed");
+                                const { downloadUrl, fileName } = await res.json();
+                                const a = document.createElement("a");
+                                a.href = downloadUrl;
+                                a.download = fileName || "presentation.pptx";
+                                a.click();
+                              } catch (err) { toast.error((err as Error).message); }
+                            }}
+                          >
+                            <Download className="mr-1 h-3.5 w-3.5" />
+                            Download
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              const presId = await _resolvePresentationId(msg);
+                              if (!presId) return;
+                              setLatestPresentationId(presId);
+                              setActivePanel("preview");
+                            }}
+                          >
+                            <Eye className="mr-1 h-3.5 w-3.5" />
+                            Preview
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              const presId = await _resolvePresentationId(msg);
+                              if (!presId) return;
+                              setLatestPresentationId(presId);
+                              setActivePanel("editor");
+                            }}
+                          >
+                            <PenTool className="mr-1 h-3.5 w-3.5" />
+                            Edit
+                          </Button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -794,19 +894,43 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                       </AnimatePresence>
                     </div>
 
+                    {/* Pasted image previews */}
+                    {pastedImages.length > 0 && (
+                      <div className="flex gap-1.5 px-1 pt-1.5 flex-wrap">
+                        {pastedImages.map((img, i) => (
+                          <div key={img.key} className="relative group">
+                            <img src={img.previewUrl} alt={`Pasted ${i + 1}`} className="h-12 w-16 object-cover rounded border border-border" />
+                            <button
+                              type="button"
+                              onClick={() => setPastedImages((prev) => prev.filter((_, j) => j !== i))}
+                              className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              x
+                            </button>
+                          </div>
+                        ))}
+                        {uploadingImage && (
+                          <div className="h-12 w-16 rounded border border-dashed border-border flex items-center justify-center">
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Auto-expanding textarea */}
                     <textarea
                       ref={textareaRef}
                       value={prompt}
                       onChange={(e) => { setPrompt(e.target.value); autoResize(); }}
+                      onPaste={handlePasteImage}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
+                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                           e.preventDefault();
                           if (!hasSubmitted) handleSendPrompt(e);
                           else handleSendFollowUp();
                         }
                       }}
-                      placeholder={hasSubmitted ? "Describe changes or ask anything..." : "Describe your idea, and I'll bring it to life"}
+                      placeholder={hasSubmitted ? "Describe changes or paste images (Ctrl+V)..." : "Describe your idea or paste images (Ctrl+V)..."}
                       className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground/40 min-w-0 py-2 resize-none overflow-hidden leading-relaxed"
                       rows={1}
                       style={{ maxHeight: 200 }}

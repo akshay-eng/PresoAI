@@ -52,6 +52,11 @@ class S3Service:
         )
         return s3_key
 
+    def download_bytes(self, s3_key: str) -> bytes:
+        logger.info("downloading_bytes_from_s3", key=s3_key)
+        response = self.client.get_object(Bucket=self.bucket, Key=s3_key)
+        return response["Body"].read()
+
     def generate_presigned_url(self, s3_key: str, expires_in: int = 3600) -> str:
         return self.client.generate_presigned_url(
             "get_object",

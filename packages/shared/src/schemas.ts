@@ -24,12 +24,13 @@ export const generatePresentationSchema = z.object({
   audienceType: z.enum(["executive", "technical", "general"]),
   modelId: z.string().min(1),
   engine: z.enum(["claude-code", "claude-gemini", "node-worker"]).default("claude-code"),
+  chatImageKeys: z.array(z.string()).optional(),
 });
 
 export const presignUploadSchema = z.object({
   fileName: z.string().min(1).max(500),
   contentType: z.string().min(1),
-  purpose: z.enum(["template", "reference", "general"]),
+  purpose: z.enum(["template", "reference", "general", "chat-image"]),
 });
 
 export const approveJobSchema = z.object({

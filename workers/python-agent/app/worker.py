@@ -47,6 +47,8 @@ async def process_python_agent_job(job: Any, token: str | None = None) -> dict:
             "style_guide": job_data.get("styleGuide", ""),
             "visual_style": job_data.get("visualStyle", {}),
             "layout_patterns": job_data.get("layoutPatterns", []),
+            "chat_image_keys": job_data.get("chatImageKeys", []),
+            "reference_visual_parts": [],
         }
 
         thread_id = job_data.get("langGraphThreadId", job_id)

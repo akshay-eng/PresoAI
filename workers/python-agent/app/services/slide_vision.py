@@ -158,17 +158,79 @@ def _pick_diverse_indices(total: int, count: int) -> list[int]:
     return sorted(indices)[:count]
 
 
+def create_collages(
+    images: list[bytes], grid: tuple[int, int] = (2, 2)
+) -> list[bytes]:
+    """Create 2x2 collage images from individual slide images to save tokens.
+
+    A 20-slide deck becomes 5 collages instead of 20 images = ~4x token savings.
+    Each collage has slide numbers in the corners for reference.
+    """
+    cols, rows = grid
+    per_collage = cols * rows
+    collages: list[bytes] = []
+
+    from PIL import ImageDraw, ImageFont
+
+    for chunk_start in range(0, len(images), per_collage):
+        chunk = images[chunk_start : chunk_start + per_collage]
+
+        # Open all images in this chunk
+        pil_images = [Image.open(io.BytesIO(img)) for img in chunk]
+
+        # Use the first image's dimensions as the cell size
+        cell_w, cell_h = pil_images[0].size
+        canvas = Image.new("RGB", (cell_w * cols, cell_h * rows), (30, 30, 30))
+
+        for idx, pil_img in enumerate(pil_images):
+            col = idx % cols
+            row = idx // cols
+            # Resize to cell size if needed
+            pil_img = pil_img.resize((cell_w, cell_h), Image.LANCZOS)
+            canvas.paste(pil_img, (col * cell_w, row * cell_h))
+
+            # Add slide number label
+            draw = ImageDraw.Draw(canvas)
+            slide_num = chunk_start + idx + 1
+            label = f"Slide {slide_num}"
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+            except (OSError, IOError):
+                font = ImageFont.load_default()
+            x = col * cell_w + 8
+            y = row * cell_h + 4
+            # Draw background rectangle for readability
+            draw.rectangle([x - 2, y - 2, x + len(label) * 12, y + 24], fill=(0, 0, 0, 180))
+            draw.text((x, y), label, fill="white", font=font)
+
+        # Save as JPEG (smaller than PNG for photo-like content)
+        buf = io.BytesIO()
+        canvas.save(buf, format="JPEG", quality=80)
+        collages.append(buf.getvalue())
+
+    logger.info("collages_created", total_slides=len(images), collages=len(collages))
+    return collages
+
+
 def images_to_base64_messages(
-    images: list[bytes], labels: list[str] | None = None
+    images: list[bytes], labels: list[str] | None = None, detail: str = "high"
 ) -> list[dict]:
-    """Convert images to OpenAI/Gemini-compatible multimodal message content parts."""
+    """Convert images to OpenAI/Gemini-compatible multimodal message content parts.
+
+    Args:
+        images: List of image bytes (PNG or JPEG)
+        labels: Optional labels for each image
+        detail: "high" for full detail (~765 tokens/image) or "low" for overview (~85 tokens/image)
+    """
     parts: list[dict] = []
     for i, img_bytes in enumerate(images):
         label = labels[i] if labels and i < len(labels) else f"Slide {i + 1}"
         b64 = base64.b64encode(img_bytes).decode("utf-8")
+        # Detect format from bytes
+        fmt = "jpeg" if img_bytes[:2] == b'\xff\xd8' else "png"
         parts.append({"type": "text", "text": f"\n[{label}]"})
         parts.append({
             "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"},
+            "image_url": {"url": f"data:image/{fmt};base64,{b64}", "detail": detail},
         })
     return parts

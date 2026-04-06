@@ -176,6 +176,7 @@ export async function POST(
       themeConfig: project.template?.themeConfig || styleProfile?.themeConfig || {},
       projectName: project.name,
       engine: parsed.data.engine || "claude-code",
+      chatImageKeys: parsed.data.chatImageKeys || [],
     };
 
     // Enqueue directly to the Python agent queue

@@ -108,6 +108,9 @@ class PPTGenerationState(TypedDict, total=False):
     error: str
     job_id: str
     user_id: str
+    # Visual context from references and chat images
+    chat_image_keys: list[str]              # S3 keys of images pasted in chat
+    reference_visual_parts: list[dict]      # Multimodal message parts from PPTX reference collages
 
 
 class ExtractThemeRequest(BaseModel):
