@@ -2,8 +2,8 @@
   "name": "@slideforge/db",
   "version": "1.0.0",
   "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
@@ -18,6 +18,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^25.5.2",
     "prisma": "^5.22.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"

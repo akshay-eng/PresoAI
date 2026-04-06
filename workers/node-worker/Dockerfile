@@ -16,6 +16,9 @@ COPY --from=deps /app/ ./
 COPY workers/node-worker ./workers/node-worker
 COPY packages ./packages
 RUN pnpm --filter @slideforge/db run generate
+RUN pnpm --filter @slideforge/db run build
+RUN pnpm --filter @slideforge/queue run build || true
+RUN pnpm --filter @slideforge/shared run build || true
 WORKDIR /app/workers/node-worker
 RUN pnpm build
 
