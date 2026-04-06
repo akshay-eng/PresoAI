@@ -180,6 +180,9 @@ importers:
       '@types/bcryptjs':
         specifier: ^2.4.6
         version: 2.4.6
+      '@types/node':
+        specifier: ^25.5.2
+        version: 25.5.2
       prisma:
         specifier: ^5.22.0
         version: 5.22.0
