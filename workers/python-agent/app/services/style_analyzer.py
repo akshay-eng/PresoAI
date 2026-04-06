@@ -33,7 +33,7 @@ from app.services.llm_factory import get_model
 logger = structlog.get_logger()
 
 # Maximum slides to visually analyze per file
-MAX_VISUAL_SLIDES = 5
+MAX_VISUAL_SLIDES = 10
 
 
 class SlideDesignAnalysis(BaseModel):
@@ -219,7 +219,7 @@ class StyleAnalyzer:
                 base_url=model_config.get("base_url"),
                 api_key=model_config.get("api_key"),
                 temperature=0.2,
-                max_tokens=4000,
+                max_tokens=32000,
             )
             llm = get_model(config)
             structured_llm = llm.with_structured_output(SlideDesignAnalysis)
