@@ -15,6 +15,7 @@
     "@slideforge/queue": "workspace:*",
     "@slideforge/shared": "workspace:*",
     "bullmq": "^5.18.0",
+    "dotenv": "^17.4.1",
     "ioredis": "^5.4.1",
     "jszip": "^3.10.1",
     "pino": "^9.5.0",
