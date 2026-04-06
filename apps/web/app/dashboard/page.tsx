@@ -7,7 +7,7 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Plus, Search, FileText, Trash2, Clock, Send, Presentation,
+  Plus, Search, FileText, Trash2, Clock, Send, Presentation, X,
   BarChart3, Users, Lightbulb, Upload, Palette, Brain, Settings2, Loader2, Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { GlobalPanels } from "@/components/global-panels";
 import { LottieAnimation } from "@/components/lottie-animation";
 import { api } from "@/lib/api-client";
+import { StyleProfileViewer } from "@/components/project/style-profile-viewer";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
@@ -33,6 +34,13 @@ export default function DashboardPage() {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
   const [showAttach, setShowAttach] = useState(false);
+  const [showCreateStyle, setShowCreateStyle] = useState(false);
+  const [showStyleDetail, setShowStyleDetail] = useState<string | null>(null);
+  const [newStyleName, setNewStyleName] = useState("");
+  const [styleFiles, setStyleFiles] = useState<File[]>([]);
+  const [creatingStyle, setCreatingStyle] = useState(false);
+  const [deleteStyleConfirm, setDeleteStyleConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [deletingStyle, setDeletingStyle] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load models for the selector
@@ -414,6 +422,317 @@ export default function DashboardPage() {
             ))}
           </div>
         </motion.div>
+
+        {/* Brand & Style Profiles */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08, duration: 0.4, ease }}
+          className="max-w-5xl mx-auto px-6 pb-8"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-base font-semibold">Brand Styles</h2>
+              <p className="text-xs text-muted-foreground">Upload .pptx files to create a reusable style profile</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => setShowCreateStyle(true)}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              New Style
+            </Button>
+          </div>
+
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+            {/* Create new style card */}
+            <button
+              onClick={() => setShowCreateStyle(true)}
+              className="shrink-0 w-48 h-32 rounded-xl border border-dashed border-border/60 flex flex-col items-center justify-center gap-2 text-muted-foreground/50 hover:text-foreground hover:border-border hover:bg-muted/20 transition-all"
+            >
+              <Upload className="h-5 w-5" />
+              <span className="text-xs font-medium">Upload & Analyze</span>
+            </button>
+
+            {/* Existing profiles */}
+            {(styleProfiles as Array<{ id: string; name: string; status: string; visualStyle?: { design_language?: string }; themeConfig?: Record<string, string> }>).map((profile) => (
+              <div
+                key={profile.id}
+                onClick={() => {
+                  setSelectedProfileId(profile.id);
+                  setShowStyleDetail(profile.id);
+                }}
+                className={`shrink-0 w-48 h-36 rounded-xl border transition-all cursor-pointer overflow-hidden relative group flex flex-col ${
+                  selectedProfileId === profile.id
+                    ? "border-primary ring-1 ring-primary/30"
+                    : "border-border/60 hover:border-border hover:shadow-sm"
+                }`}
+              >
+                {/* Color bar from theme */}
+                <div className="h-2 w-full flex">
+                  {profile.themeConfig && Object.entries(profile.themeConfig)
+                    .filter(([k]) => k.startsWith("accent"))
+                    .slice(0, 6)
+                    .map(([k, v]) => (
+                      <div key={k} className="flex-1" style={{ backgroundColor: v as string }} />
+                    ))
+                  }
+                  {(!profile.themeConfig || Object.keys(profile.themeConfig).length === 0) && (
+                    <div className="flex-1 bg-gradient-to-r from-primary/30 to-primary/10" />
+                  )}
+                </div>
+                <div className="p-2.5 flex-1 flex flex-col">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold truncate">{profile.name}</p>
+                    <Badge variant={profile.status === "ready" ? "default" : "secondary"} className="text-[8px] h-4 px-1">
+                      {profile.status}
+                    </Badge>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2 leading-tight flex-1">
+                    {(profile.visualStyle as { design_language?: string })?.design_language || "Analyzing style..."}
+                  </p>
+                  <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-border/30">
+                    <span className="text-[9px] text-muted-foreground/50">Click to view</span>
+                    <button
+                      className="p-0.5 rounded text-muted-foreground/40 hover:text-destructive transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteStyleConfirm({ id: profile.id, name: profile.name });
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Style Detail Modal */}
+        <AnimatePresence>
+          {showStyleDetail && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6"
+              onClick={() => setShowStyleDetail(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-card rounded-2xl border border-border shadow-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto p-6"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold">Style Profile Details</h3>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={() => {
+                        const prof = (styleProfiles as Array<{ id: string; name: string }>).find((p) => p.id === showStyleDetail);
+                        setDeleteStyleConfirm({ id: showStyleDetail!, name: prof?.name || "Style" });
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Delete
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setShowStyleDetail(null)}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <StyleProfileViewer profileId={showStyleDetail} />
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Create Style Modal */}
+        <AnimatePresence>
+          {showCreateStyle && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-6"
+              onClick={() => setShowCreateStyle(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-card rounded-2xl border border-border shadow-2xl max-w-md w-full p-6"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-sm font-semibold mb-3">Create Style Profile</h3>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Upload .pptx files and we&apos;ll analyze the visual style, colors, fonts, and layouts to create a reusable brand profile.
+                </p>
+
+                <div className="space-y-3">
+                  <Input
+                    placeholder="Style name (e.g. Company Brand)"
+                    value={newStyleName}
+                    onChange={(e) => setNewStyleName(e.target.value)}
+                    className="text-xs h-8"
+                  />
+
+                  <div
+                    className="border-2 border-dashed border-border/60 rounded-xl p-6 text-center cursor-pointer hover:border-border hover:bg-muted/10 transition-colors"
+                    onClick={() => document.getElementById("style-file-input")?.click()}
+                  >
+                    <Upload className="h-6 w-6 mx-auto mb-2 text-muted-foreground/50" />
+                    <p className="text-xs font-medium">Drop .pptx files here or click to browse</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">We&apos;ll sample 3-4 slides per file for visual analysis</p>
+                    <input
+                      id="style-file-input"
+                      type="file"
+                      accept=".pptx"
+                      multiple
+                      className="hidden"
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length === 0) return;
+                        setStyleFiles(files);
+                      }}
+                    />
+                  </div>
+
+                  {styleFiles.length > 0 && (
+                    <div className="space-y-1">
+                      {styleFiles.map((f, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <FileText className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{f.name}</span>
+                          <span className="text-[10px]">{(f.size / 1024).toFixed(0)}KB</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <Button
+                    size="sm"
+                    className="w-full h-8 text-xs"
+                    disabled={!newStyleName.trim() || styleFiles.length === 0 || creatingStyle}
+                    onClick={async () => {
+                      setCreatingStyle(true);
+                      try {
+                        // 1. Create the profile
+                        const createRes = await fetch("/api/style-profiles", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ name: newStyleName }),
+                        });
+                        if (!createRes.ok) throw new Error("Failed to create profile");
+                        const { id: profileId } = await createRes.json();
+
+                        // 2. Upload each file
+                        for (const file of styleFiles) {
+                          const presignRes = await fetch("/api/upload/presign", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ fileName: file.name, contentType: file.type || "application/vnd.openxmlformats-officedocument.presentationml.presentation", purpose: "template" }),
+                          });
+                          if (!presignRes.ok) continue;
+                          const { signedUrl, key } = await presignRes.json();
+                          await fetch(signedUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+
+                          // Add source file
+                          await fetch(`/api/style-profiles/${profileId}/sources`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ s3Key: key, fileName: file.name }),
+                          });
+                        }
+
+                        // 3. Analyze
+                        await fetch(`/api/style-profiles/${profileId}/analyze`, { method: "POST" });
+
+                        toast.success("Style profile created! Analyzing...");
+                        setShowCreateStyle(false);
+                        setNewStyleName("");
+                        setStyleFiles([]);
+                        queryClient.invalidateQueries({ queryKey: ["style-profiles"] });
+                      } catch (err) {
+                        toast.error((err as Error).message);
+                      }
+                      setCreatingStyle(false);
+                    }}
+                  >
+                    {creatingStyle ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
+                    Create & Analyze
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Delete Style Confirmation Modal */}
+        <AnimatePresence>
+          {deleteStyleConfirm && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-6"
+              onClick={() => setDeleteStyleConfirm(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-card rounded-2xl border border-border shadow-2xl max-w-sm w-full p-5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-destructive/10 flex items-center justify-center shrink-0 mt-0.5">
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Delete style profile</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Are you sure you want to delete <span className="font-medium text-foreground">&quot;{deleteStyleConfirm.name}&quot;</span>? This action cannot be undone.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-5">
+                  <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setDeleteStyleConfirm(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-8 text-xs"
+                    disabled={deletingStyle}
+                    onClick={async () => {
+                      setDeletingStyle(true);
+                      try {
+                        await fetch(`/api/style-profiles/${deleteStyleConfirm.id}`, { method: "DELETE" });
+                        toast.success("Style profile deleted");
+                        if (selectedProfileId === deleteStyleConfirm.id) setSelectedProfileId("");
+                        if (showStyleDetail === deleteStyleConfirm.id) setShowStyleDetail(null);
+                        queryClient.invalidateQueries({ queryKey: ["style-profiles"] });
+                        setDeleteStyleConfirm(null);
+                      } catch { toast.error("Failed to delete"); }
+                      setDeletingStyle(false);
+                    }}
+                  >
+                    {deletingStyle ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                    Delete
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Recent projects */}
         <div className="max-w-5xl mx-auto px-6 pb-16">

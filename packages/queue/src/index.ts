@@ -11,6 +11,8 @@ export type {
   NodeWorkerJobData,
   FinalizeJobData,
   ProgressEvent,
+  ThemeConfig,
+  SlideSpec,
 } from "./types";
 export {
   publishProgress,

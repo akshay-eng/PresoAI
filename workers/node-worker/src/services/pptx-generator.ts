@@ -109,7 +109,7 @@ export async function processNodeWorkerJob(
   pres.company = "SlideForge";
 
   // Check if slides contain LLM-generated code or old-style SlideSpec
-  const hasCode = slides.length > 0 && typeof (slides[0] as Record<string, unknown>).code === "string";
+  const hasCode = slides.length > 0 && typeof (slides[0] as unknown as Record<string, unknown>).code === "string";
 
   if (hasCode) {
     // New approach: execute LLM-generated pptxgenjs code per slide
@@ -123,7 +123,7 @@ export async function processNodeWorkerJob(
     logger.info({ jobId, slideCount: slides.length }, "Using legacy SlideSpec renderer");
 
     for (const spec of slides) {
-      const s = spec as Record<string, unknown>;
+      const s = spec as unknown as Record<string, unknown>;
       const slide = pres.addSlide();
       slide.background = { color: "FFFFFF" };
 
@@ -181,7 +181,7 @@ export async function processNodeWorkerJob(
   }
 
   // Save to DB
-  const projectName = (data as Record<string, unknown>).projectName as string || "Presentation";
+  const projectName = (data as unknown as Record<string, unknown>).projectName as string || "Presentation";
   try {
     const existingVersions = await prisma.presentation.count({ where: { projectId } });
 

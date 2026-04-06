@@ -149,6 +149,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [activePanel, setActivePanel] = useState<"none" | "outline" | "plan" | "preview" | "files" | "editor" | "template" | "references" | "model" | "style" | "engine">("none");
+  const [latestPresentationId, setLatestPresentationId] = useState<string | null>(null);
   const [editingOutline, setEditingOutline] = useState(false);
   const [editedOutline, setEditedOutline] = useState<typeof outline>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
