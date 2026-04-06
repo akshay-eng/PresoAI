@@ -21,6 +21,7 @@ export interface ChatMessage {
     error?: string;
     presentationId?: string;
     s3Key?: string;
+    imageKeys?: string[];
   };
 }
 
