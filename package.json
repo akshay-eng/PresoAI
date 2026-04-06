@@ -9,7 +9,8 @@
       "prisma",
       "esbuild",
       "sharp",
-      "msgpackr-extract"
+      "msgpackr-extract",
+      "canvas"
     ]
   },
   "scripts": {

@@ -4,6 +4,8 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /app
 
 FROM base AS deps
+# Install build tools needed for canvas native module
+RUN apk add --no-cache python3 make g++ pkgconf pixman-dev cairo-dev pango-dev jpeg-dev giflib-dev
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/web/package.json ./apps/web/
 COPY packages/db/package.json ./packages/db/
