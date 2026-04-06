@@ -1,0 +1,393 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum JobType {
+  PPT_GENERATION
+  TEMPLATE_EXTRACTION
+  REFERENCE_PROCESSING
+  STYLE_PROFILE_ANALYSIS
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  AWAITING_REVIEW
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String?
+  role         UserRole  @default(USER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  oauthAccounts      OAuthAccount[]
+  projects           Project[]
+  templates          Template[]
+  jobs               Job[]
+  llmConfigs         LLMConfig[]
+  styleProfiles      StyleProfile[]
+  knowledgeGraphNodes KnowledgeGraphNode[]
+  providerKeys       ProviderApiKey[]
+  usageRecords       UsageRecord[]
+
+  @@map("users")
+}
+
+// ─── Provider API Keys ───
+// Stores per-user API keys for each LLM provider.
+// When a user has a key for a provider, only that provider's models are shown.
+// Keys are encrypted with AES-256-GCM before storing.
+
+model ProviderApiKey {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    String   // google, anthropic, openai, mistral
+  apiKeyEnc   String   // Encrypted API key
+  isValid     Boolean  @default(false) // Set after validation request
+  lastValidated DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
+  @@map("provider_api_keys")
+}
+
+// ─── Usage Tracking ───
+// Tracks token usage and cost per user per generation.
+// Free tier: 1 PPT per 8 hours using server Gemini key.
+// Users with their own keys: unlimited, but usage is tracked.
+
+model UsageRecord {
+  id              String   @id @default(cuid())
+  userId          String
+  jobId           String?
+  provider        String   // google, anthropic, openai, etc.
+  model           String   // gemini-2.5-pro, claude-sonnet-4, etc.
+  inputTokens     Int      @default(0)
+  outputTokens    Int      @default(0)
+  totalTokens     Int      @default(0)
+  estimatedCostUsd Float   @default(0)
+  source          String   @default("user_key") // "user_key" | "free_tier"
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, source])
+  @@map("usage_records")
+}
+
+// Free tier session tracking — resets every 8 hours
+model FreeTierSession {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  generationsUsed Int      @default(0)
+  maxGenerations  Int      @default(1)
+  windowStart     DateTime @default(now())
+  windowHours     Int      @default(8)
+  updatedAt       DateTime @updatedAt
+
+  @@map("free_tier_sessions")
+}
+
+model OAuthAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  provider     String
+  providerAccountId String
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("oauth_accounts")
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  name           String
+  prompt         String
+  numSlides      Int      @default(10)
+  audienceType   String   @default("general")
+  userId         String
+  templateId     String?
+  llmConfigId    String?
+  styleProfileId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template       Template?      @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  llmConfig      LLMConfig?     @relation(fields: [llmConfigId], references: [id], onDelete: SetNull)
+  styleProfile   StyleProfile?  @relation(fields: [styleProfileId], references: [id], onDelete: SetNull)
+  referenceFiles ReferenceFile[]
+  presentations  Presentation[]
+  jobs           Job[]
+  chatMessages   ChatMessage[]
+
+  @@index([userId])
+  @@map("projects")
+}
+
+model Template {
+  id               String   @id @default(cuid())
+  name             String
+  s3Key            String
+  thumbnailUrl     String?
+  themeConfig      Json?
+  extractionStatus String   @default("pending")
+  userId           String
+  isPublic         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@index([userId])
+  @@map("templates")
+}
+
+model ReferenceFile {
+  id               String   @id @default(cuid())
+  projectId        String
+  fileName         String
+  fileType         String
+  s3Key            String
+  fileSize         Int
+  extractedText    String?
+  extractionStatus String   @default("pending")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("reference_files")
+}
+
+model Presentation {
+  id            String   @id @default(cuid())
+  projectId     String
+  title         String
+  s3Key         String
+  thumbnails    Json?
+  slideCount    Int
+  version       Int      @default(1)
+  metadata      Json?
+  canvaDesignId String?
+  jobId         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  job     Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@map("presentations")
+}
+
+model Job {
+  id                 String    @id @default(cuid())
+  bullmqJobId        String?
+  type               JobType
+  status             JobStatus @default(PENDING)
+  progress           Float     @default(0)
+  currentPhase       String?
+  projectId          String
+  userId             String
+  input              Json?
+  output             Json?
+  error              String?
+  attempts           Int       @default(0)
+  langGraphThreadId  String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  presentations Presentation[]
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([bullmqJobId])
+  @@map("jobs")
+}
+
+model LLMConfig {
+  id          String   @id @default(cuid())
+  name        String
+  provider    String
+  model       String
+  baseUrl     String?
+  apiKeyEnc   String?
+  temperature Float    @default(0.7)
+  maxTokens   Int      @default(4096)
+  isDefault   Boolean  @default(false)
+  userId      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@index([userId])
+  @@map("llm_configs")
+}
+
+model StyleProfile {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  userId            String
+  status            String   @default("pending") // pending, analyzing, ready, failed
+
+  // Structured theme data (merged from all source files)
+  themeConfig       Json?    // ThemeConfig: colors, fonts, layouts
+  // Visual style analysis from multimodal LLM
+  visualStyle       Json?    // VisualStyleAnalysis: design_language, spacing, hierarchy, etc.
+  // Natural language style guide generated by LLM
+  styleGuide        String?  // Prose description: "This brand uses a clean corporate style..."
+  // Aggregated layout patterns found across source files
+  layoutPatterns    Json?    // [{type, frequency, description, content_density}]
+  // Sample slide thumbnails kept for reference
+  sampleThumbnails  Json?    // [s3_key, ...]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceFiles       StyleProfileSource[]
+  projects          Project[]
+
+  @@index([userId])
+  @@map("style_profiles")
+}
+
+model StyleProfileSource {
+  id              String   @id @default(cuid())
+  styleProfileId  String
+  fileName        String
+  s3Key           String
+  fileSize        Int
+  slideCount      Int      @default(0)
+  sampledSlides   Json?    // [slide_numbers] that were analyzed
+  extractedTheme  Json?    // Per-file ThemeConfig before merging
+  status          String   @default("pending") // pending, processing, done, failed
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  styleProfile    StyleProfile @relation(fields: [styleProfileId], references: [id], onDelete: Cascade)
+
+  @@index([styleProfileId])
+  @@map("style_profile_sources")
+}
+
+// ─── Knowledge Graph ───
+// Per-user graph that accumulates design knowledge from every uploaded file.
+// Nodes represent design concepts (color palettes, fonts, layout patterns, etc.)
+// Edges represent relationships (palette -> used_in -> layout, font -> pairs_with -> font)
+
+model KnowledgeGraphNode {
+  id          String   @id @default(cuid())
+  userId      String
+  category    String   // palette, font, layout, spacing, visual_element, content_pattern, brand_trait
+  label       String   // "Dark corporate palette", "Montserrat + Open Sans", "2-column with icon grid"
+  properties  Json     // Category-specific structured data
+  confidence  Float    @default(1.0) // 0-1, increases with more source files confirming this pattern
+  sourceCount Int      @default(1)   // How many files contributed to this node
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outEdges    KnowledgeGraphEdge[] @relation("EdgeFrom")
+  inEdges     KnowledgeGraphEdge[] @relation("EdgeTo")
+
+  @@unique([userId, category, label])
+  @@index([userId, category])
+  @@map("knowledge_graph_nodes")
+}
+
+model KnowledgeGraphEdge {
+  id          String   @id @default(cuid())
+  fromNodeId  String
+  toNodeId    String
+  relation    String   // pairs_with, used_in, contrasts_with, follows, contains
+  weight      Float    @default(1.0) // strength of relationship
+  properties  Json?
+  createdAt   DateTime @default(now())
+
+  fromNode    KnowledgeGraphNode @relation("EdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode      KnowledgeGraphNode @relation("EdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([fromNodeId, toNodeId, relation])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@map("knowledge_graph_edges")
+}
+
+// ─── Chat Messages ───
+// Persistent conversation history per project. Each message is either from
+// the user or the assistant (system events like generation progress, outline
+// review, errors, etc.). Tied to a project, ordered by createdAt.
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  projectId   String
+  role        String   // "user" | "assistant" | "system"
+  content     String   // The message text (markdown supported)
+  metadata    Json?    // Optional structured data: { jobId, phase, outline, slides, error, ... }
+  createdAt   DateTime @default(now())
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@map("chat_messages")
+}
+
+// ─── Agent Memory ───
+// Stores per-job step results so the pipeline can resume from the last successful step.
+
+model AgentMemory {
+  id          String   @id @default(cuid())
+  jobId       String
+  stepName    String   // extract_template, process_references, query_generator, etc.
+  stepIndex   Int
+  status      String   @default("completed") // completed, failed
+  input       Json?
+  output      Json?    // The state delta this step produced
+  error       String?
+  durationMs  Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([jobId, stepName])
+  @@index([jobId])
+  @@map("agent_memory")
+}

@@ -1,0 +1,30 @@
+{
+  "name": "slideforge",
+  "version": "1.0.0",
+  "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "sharp",
+      "msgpackr-extract",
+      "canvas"
+    ]
+  },
+  "scripts": {
+    "dev": "pnpm --parallel -r run dev",
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint",
+    "db:generate": "pnpm --filter @slideforge/db run generate",
+    "db:migrate": "pnpm --filter @slideforge/db run migrate",
+    "db:seed": "pnpm --filter @slideforge/db run seed",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

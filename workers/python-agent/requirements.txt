@@ -1,0 +1,32 @@
+fastapi>=0.115.0,<1.0
+uvicorn[standard]>=0.32.0,<1.0
+pydantic>=2.10.0,<3.0
+pydantic-settings>=2.6.0,<3.0
+
+# LangGraph + LangChain
+langgraph>=0.2.50,<0.3
+langchain-core>=0.3.20,<0.4
+langchain-openai>=0.2.10,<0.3
+langchain-anthropic>=0.3.0,<0.4
+langchain-google-genai>=2.0.0,<3.0
+langchain-mistralai>=0.2.0,<0.3
+langgraph-checkpoint-postgres>=2.0.0,<3.0
+
+# Tools
+tavily-python>=0.5.0,<1.0
+python-pptx>=1.0.0,<2.0
+pdfplumber>=0.11.0,<1.0
+python-docx>=1.1.0,<2.0
+Pillow>=11.0.0,<12.0
+lxml>=5.0.0,<6.0
+
+# BullMQ
+bullmq>=2.20.0,<3.0
+
+# Infrastructure
+boto3>=1.35.0,<2.0
+redis>=5.2.0
+psycopg[binary]>=3.2.0,<4.0
+structlog>=24.0.0,<25.0
+python-multipart>=0.0.17,<1.0
+cryptography>=44.0.0,<45.0

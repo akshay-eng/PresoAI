@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+/* ---- Dark theme (default) ---- */
+@theme {
+  --color-background: #1A1C23;
+  --color-foreground: #EDEBE7;
+  --color-muted: #24272F;
+  --color-muted-foreground: #9194A1;
+  --color-popover: #22252E;
+  --color-popover-foreground: #EDEBE7;
+  --color-card: #22252E;
+  --color-card-foreground: #EDEBE7;
+  --color-border: #2F323D;
+  --color-input: #2F323D;
+  --color-primary: #14B8A6;
+  --color-primary-foreground: #042F2E;
+  --color-secondary: #2A2D38;
+  --color-secondary-foreground: #C8C9CF;
+  --color-accent: #F97066;
+  --color-accent-foreground: #1A1C23;
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: #FAFAFA;
+  --color-ring: #14B8A6;
+  --radius: 0.625rem;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
+
+/* ---- Light theme ---- */
+.light {
+  --color-background: #FAFAF8;
+  --color-foreground: #1A1C23;
+  --color-muted: #F0EFEC;
+  --color-muted-foreground: #6B6D78;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1A1C23;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #1A1C23;
+  --color-border: #E4E3DF;
+  --color-input: #E4E3DF;
+  --color-primary: #0D9488;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F0EFEC;
+  --color-secondary-foreground: #4A4C55;
+  --color-accent: #EF5A50;
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+  --color-ring: #0D9488;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  button, a, [role="button"], label[for], select, summary,
+  input[type="checkbox"], input[type="radio"], input[type="submit"],
+  input[type="button"], input[type="range"] {
+    cursor: pointer;
+  }
+}
+
+/* Easing */
+:root {
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(145, 148, 161, 0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(145, 148, 161, 0.35); }
+.light ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.12); }
+.light ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.22); }
+
+/* Selection */
+::selection { background: rgba(20, 184, 166, 0.25); }
+
+/* Focus — buttons/links only */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible:not(input):not(textarea):not(select) {
+  outline: 2px solid rgba(20, 184, 166, 0.3);
+  outline-offset: 2px;
+}
