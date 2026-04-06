@@ -652,8 +652,17 @@ export default function DashboardPage() {
                           });
                         }
 
-                        // 3. Analyze
-                        await fetch(`/api/style-profiles/${profileId}/analyze`, { method: "POST" });
+                        // 3. Analyze (needs a modelId — pick default or first available)
+                        const analyzeModelId =
+                          modelList.find((m) => m.isDefault)?.id || modelList[0]?.id;
+                        if (!analyzeModelId) {
+                          throw new Error("No LLM model configured. Add one in Settings first.");
+                        }
+                        await fetch(`/api/style-profiles/${profileId}/analyze`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ modelId: analyzeModelId }),
+                        });
 
                         toast.success("Style profile created! Analyzing...");
                         setShowCreateStyle(false);
