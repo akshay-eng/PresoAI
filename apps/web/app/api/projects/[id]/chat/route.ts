@@ -73,7 +73,7 @@ export async function POST(
         projectId: id,
         role: parsed.data.role,
         content: parsed.data.content,
-        metadata: parsed.data.metadata || undefined,
+        ...(parsed.data.metadata ? { metadata: parsed.data.metadata as object } : {}),
       },
     });
 
