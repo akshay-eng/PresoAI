@@ -29,9 +29,12 @@ export async function GET(
       return NextResponse.json({ error: "No file" }, { status: 400 });
     }
 
-    // Use the nginx proxy URL — serves Collabora on port 80 (avoids WebSocket port mismatch)
-    // Collabora served via nginx proxy on port 80 (Collabora's JS expects same-origin on default port)
+    // Internal URL — used by this server to hit /hosting/discovery
     const collaboraUrl = process.env.COLLABORA_URL || "http://localhost";
+    // Public URL — what the BROWSER loads (iframe src). Must be reachable from client.
+    const collaboraPublicUrl = process.env.COLLABORA_PUBLIC_URL || collaboraUrl;
+    // Public URL of this web app — what Collabora calls back to for WOPI. Reachable from Collabora container.
+    const wopiPublicUrl = process.env.WOPI_PUBLIC_URL || "http://host.docker.internal:3000";
 
     // Discover Collabora's capabilities
     let discoveryXml: string;
@@ -54,14 +57,15 @@ export async function GET(
 
     let editorUrlTemplate = pptxMatch[1]!;
 
-    // Fix the URL: Collabora returns http://localhost/... but we need http://localhost:9980/...
+    // Replace Collabora's advertised host (usually http://localhost) with our PUBLIC URL
+    // so the browser can actually load the iframe.
     editorUrlTemplate = editorUrlTemplate.replace(
-      /^http:\/\/localhost\//,
-      `${collaboraUrl}/`
+      /^https?:\/\/[^/]+\//,
+      `${collaboraPublicUrl.replace(/\/$/, "")}/`
     );
 
-    // Build WOPI source URL — Collabora runs in Docker so use host.docker.internal
-    const wopiSrc = `http://host.docker.internal:3000/api/wopi/files/${id}`;
+    // Build WOPI source URL — Collabora container must be able to reach this URL.
+    const wopiSrc = `${wopiPublicUrl.replace(/\/$/, "")}/api/wopi/files/${id}`;
 
     // Build final iframe URL — remove template placeholders and add WOPISrc
     editorUrlTemplate = editorUrlTemplate.replace(/<[^>]+>/g, "");
