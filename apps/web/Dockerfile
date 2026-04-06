@@ -1,4 +1,5 @@
 FROM node:20-alpine AS base
+RUN apk add --no-cache openssl libc6-compat
 RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /app
 
@@ -9,16 +10,6 @@ COPY packages/db/package.json ./packages/db/
 COPY packages/queue/package.json ./packages/queue/
 COPY packages/shared/package.json ./packages/shared/
 RUN pnpm install --frozen-lockfile
-
-FROM base AS dev
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=deps /app/packages ./packages
-COPY apps/web ./apps/web
-COPY packages ./packages
-WORKDIR /app/apps/web
-EXPOSE 3000
-CMD ["pnpm", "dev"]
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
@@ -31,6 +22,7 @@ WORKDIR /app/apps/web
 RUN pnpm build
 
 FROM node:20-alpine AS runner
+RUN apk add --no-cache openssl libc6-compat
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
