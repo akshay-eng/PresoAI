@@ -120,8 +120,8 @@ jobs:
           git clone https://${{ secrets.MANIFESTS_PAT }}@github.com/akshay-eng/PresoAI_Manifests.git manifests
           cd manifests
 
-          sed -i "s|newTag:.*|newTag: $TAG|g" overlays/dev/kustomization.yaml
-          sed -i "s|newTag:.*|newTag: $TAG|g" overlays/prod/kustomization.yaml
+          sed -i "s|newTag:.*|newTag: \"$TAG\"|g" overlays/dev/kustomization.yaml
+          sed -i "s|newTag:.*|newTag: \"$TAG\"|g" overlays/prod/kustomization.yaml
 
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
