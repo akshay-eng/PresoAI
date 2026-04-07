@@ -233,21 +233,55 @@ class StyleAnalyzer:
                 {
                     "type": "text",
                     "text": (
-                        "You are an expert presentation designer analyzing slides to understand their visual design system.\n\n"
-                        "Look at these slides CAREFULLY and extract the EXACT visual design patterns. "
-                        "I need to recreate this style programmatically, so be VERY specific about:\n\n"
-                        "1. **Colors**: Not just 'blue' — give me exact hex values you see. How is each color used? "
-                        "Which color for backgrounds? Headers? Cards? Stat numbers? Accent lines?\n"
-                        "2. **Layout structure**: How is content arranged? Card grids? Step flows? Comparison columns? "
-                        "What's the exact layout composition?\n"
-                        "3. **Visual elements**: What shapes are used? Rounded rectangles? Circles for numbers? "
-                        "Lines/arrows for flows? Decorative patterns?\n"
-                        "4. **Typography**: What sizes for headers vs body? Bold/normal? Color? Alignment? "
-                        "Are there small-caps section labels?\n"
-                        "5. **Information architecture**: How does content flow? Is it modular (cards)? "
-                        "Sequential (numbered steps)? Hierarchical?\n"
-                        "6. **Signature elements**: What are the 3-5 things that make this deck visually distinctive?\n\n"
-                        "Be PRECISE. I'll use your analysis to generate slides with pptxgenjs that match this style."
+                        "You are an expert presentation designer doing a FORENSIC analysis of these slides. "
+                        "Your output will be used to PROGRAMMATICALLY RECREATE this exact visual style with pptxgenjs, "
+                        "so vague answers are useless. Be EXHAUSTIVE and SPECIFIC. Long, detailed answers are REQUIRED.\n\n"
+
+                        "For EVERY field in the output schema:\n"
+                        "- Write 2-4 full sentences minimum (not single phrases).\n"
+                        "- Include EXACT hex color codes you see (eyedropper precision).\n"
+                        "- Mention specific slide numbers when describing patterns ('Slide 2 uses...').\n"
+                        "- Quote exact typography sizes/weights/colors when visible.\n\n"
+
+                        "Specific guidance per area:\n\n"
+
+                        "1. **Colors** — Give exact hex codes. For each color, explain WHERE it appears "
+                        "(backgrounds, headers, accent bars, stat numbers, card borders, dividers). "
+                        "Identify the primary background color, primary accent, and 1-2 secondary accents.\n\n"
+
+                        "2. **Background strategy** — Are there different background treatments for title vs content vs section slides? "
+                        "Sandwich pattern (dark title → white content → dark closing)? Consistent gradient? Solid colors? "
+                        "Describe in detail.\n\n"
+
+                        "3. **Layout patterns** — List 5-8 SPECIFIC layout structures with details: "
+                        "'3-column card grid with thin colored top borders and white interiors', "
+                        "'Full-width dark footer stat bar with 4 large numbers', "
+                        "'Left-aligned large heading with colored subtitle and gold underline'. "
+                        "Be precise about counts, alignment, and decorative treatments.\n\n"
+
+                        "4. **Visual elements** — List EVERY shape type you see: rounded vs sharp rectangles, "
+                        "circles, arrows, lines, dot patterns, gradient overlays, geometric corners, dividers. "
+                        "Mention if they're used as functional (containers) or decorative.\n\n"
+
+                        "5. **Typography** — For headings: exact pt size (estimate), weight, font family if identifiable, "
+                        "color, alignment, any underlines/decorations. For body: same details. "
+                        "For section labels (small text above headers): caps treatment, color, position.\n\n"
+
+                        "6. **Color blocking** — How are colors used as STRUCTURAL elements? "
+                        "Full-width header bars? Colored left borders on cards? Full-bleed section breaks? "
+                        "Colored top stripes on cards?\n\n"
+
+                        "7. **Signature elements** — The 3-5 most DISTINCTIVE visual elements that define this brand's deck. "
+                        "These are what someone would notice first. Be specific.\n\n"
+
+                        "8. **Replication guide** — Write a LONG paragraph (5-10 sentences) describing EXACTLY how to "
+                        "recreate this style with pptxgenjs. Include: slide background colors, header bar dimensions, "
+                        "card border-radius, typical font sizes, accent color positions, signature decorations. "
+                        "Imagine you're handing this to a junior developer who has never seen the deck.\n\n"
+
+                        "REMEMBER: The previous run gave outputs like 'Modern corporate' for design_style and 'None' for "
+                        "decorative_elements. That is COMPLETELY INSUFFICIENT. Every field deserves multiple sentences "
+                        "of dense, specific observation. Be the expert designer who notices everything."
                     ),
                 }
             ]
