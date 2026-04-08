@@ -19,6 +19,7 @@ import { GlobalPanels } from "@/components/global-panels";
 import { LottieAnimation } from "@/components/lottie-animation";
 import { api } from "@/lib/api-client";
 import { StyleProfileViewer } from "@/components/project/style-profile-viewer";
+import { useChatStore } from "@/lib/stores/chat-store";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
@@ -41,6 +42,8 @@ export default function DashboardPage() {
   const [creatingStyle, setCreatingStyle] = useState(false);
   const [deleteStyleConfirm, setDeleteStyleConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deletingStyle, setDeletingStyle] = useState(false);
+  const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load models for the selector
@@ -102,6 +105,17 @@ export default function DashboardPage() {
     onSuccess: (project: unknown) => {
       const p = project as { id: string };
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+
+      // If the user pasted images, seed the chat with a user message carrying the image keys
+      // so the project page's generate flow picks them up via chatImageKeys.
+      if (pastedImages.length > 0) {
+        useChatStore.getState().addMessage(p.id, {
+          role: "user",
+          content: quickPrompt.trim(),
+          metadata: { imageKeys: pastedImages.map((img) => img.key) },
+        });
+      }
+
       // Pass settings via URL params so project page can auto-trigger generation
       const params = new URLSearchParams({
         autoGenerate: "1",
@@ -134,6 +148,55 @@ export default function DashboardPage() {
     template?: { name: string };
     _count: { presentations: number; referenceFiles: number };
   }>;
+
+  async function handlePasteImage(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        setUploadingImage(true);
+        try {
+          const presignRes = await fetch("/api/upload/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fileName: `pasted-${Date.now()}.png`,
+              contentType: file.type,
+              purpose: "chat-image",
+            }),
+          });
+          if (!presignRes.ok) throw new Error("Presign failed");
+          const { signedUrl, key } = (await presignRes.json()) as { signedUrl: string; key: string };
+
+          await fetch(signedUrl, {
+            method: "PUT",
+            body: file,
+            headers: { "Content-Type": file.type },
+          });
+
+          const previewUrl = URL.createObjectURL(file);
+          setPastedImages((prev) => [...prev, { key, previewUrl }]);
+          toast.success("Image attached");
+        } catch {
+          toast.error("Failed to upload image");
+        }
+        setUploadingImage(false);
+      }
+    }
+  }
+
+  function removePastedImage(key: string) {
+    setPastedImages((prev) => {
+      const target = prev.find((img) => img.key === key);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((img) => img.key !== key);
+    });
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -205,6 +268,34 @@ export default function DashboardPage() {
 
           <form onSubmit={handleSubmit} className="mt-8 relative">
             <div className="rounded-xl border border-border/60 bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-border">
+              {/* Pasted image previews */}
+              {(pastedImages.length > 0 || uploadingImage) && (
+                <div className="flex gap-1.5 px-2.5 pt-2 flex-wrap">
+                  {pastedImages.map((img, i) => (
+                    <div key={img.key} className="relative group">
+                      <img
+                        src={img.previewUrl}
+                        alt={`Pasted ${i + 1}`}
+                        className="h-12 w-16 object-cover rounded border border-border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removePastedImage(img.key)}
+                        className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-background border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label="Remove image"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {uploadingImage && (
+                    <div className="h-12 w-16 rounded border border-border flex items-center justify-center">
+                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Textarea row */}
               <div className="flex items-end gap-1.5 px-2 pt-2">
                 {/* + attach button */}
@@ -355,13 +446,14 @@ export default function DashboardPage() {
                   ref={textareaRef}
                   value={quickPrompt}
                   onChange={(e) => { setQuickPrompt(e.target.value); autoResize(); }}
+                  onPaste={handlePasteImage}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       handleSubmit(e);
                     }
                   }}
-                  placeholder="Describe your presentation idea..."
+                  placeholder="Describe your idea or paste images (Ctrl+V)..."
                   className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground/50 py-2 resize-none overflow-hidden leading-relaxed"
                   rows={1}
                   style={{ maxHeight: 200 }}
