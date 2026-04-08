@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     mistral_api_key: str = ""
     tavily_api_key: str = ""
+    logo_dev_api_key: str = ""
 
     python_worker_concurrency: int = 4
     libreoffice_path: str = "/opt/homebrew/bin/soffice"

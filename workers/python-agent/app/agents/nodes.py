@@ -23,6 +23,7 @@ from app.services.llm_factory import get_model
 from app.services.extraction import ThemeExtractor, ReferenceExtractor
 from app.services.progress import ProgressPublisher
 from app.services.knowledge_graph import KnowledgeGraphService
+from app.services.logo_dev import extract_brand_mentions, resolve_brand_logos
 
 logger = structlog.get_logger()
 
@@ -593,6 +594,32 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     if kg_context:
         kg_section = f"\n\n## User's Design Preferences\n{kg_context[:1000]}"
 
+    # Brand logo enrichment via logo.dev — extract mentioned companies/tools
+    # and fetch their logos so the LLM can place them on the slides.
+    brand_logos: dict[str, str] = {}
+    try:
+        brand_text = f"{prompt}\n\n{outline_text}"
+        brand_names = await extract_brand_mentions(brand_text, llm)
+        if brand_names:
+            brand_logos = await resolve_brand_logos(brand_names)
+            logger.info("brand_logos_resolved", count=len(brand_logos), brands=list(brand_logos.keys()))
+    except Exception as e:
+        logger.warning("brand_logo_enrichment_failed", error=str(e))
+
+    logos_section = ""
+    if brand_logos:
+        logos_lines = "\n".join(f'- "{name}": {url}' for name, url in brand_logos.items())
+        logos_section = (
+            "\n\n## Available Brand Logos (from logo.dev)\n"
+            "When any of these brands/tools is referenced on a slide, ADD THEIR LOGO using "
+            "`slide.addImage({ path: \"<url>\", x, y, w, h })`. "
+            "Recommended size: w 0.6-1.2 inches, h 0.6-0.8 inches. "
+            "Place near the relevant content (e.g. inside a card header, beside a heading, "
+            "or as a row of vendor logos for a tools section). "
+            "Do NOT invent URLs — only use the ones below.\n"
+            f"{logos_lines}\n"
+        )
+
     messages = [
         SystemMessage(content=(
             "You are a world-class presentation designer at a top design agency. "
@@ -600,7 +627,8 @@ async def slide_writer(state: PPTGenerationState) -> dict:
             "You write pptxgenjs JavaScript code that produces polished, professional, visually rich slides.\n\n"
             f"{PPTXGENJS_API_REFERENCE}\n"
             f"{style_section}"
-            f"{kg_section}\n"
+            f"{kg_section}"
+            f"{logos_section}\n"
             "## CATALOGUE-QUALITY DESIGN PRINCIPLES\n"
             "Think of each slide as a page in a premium corporate brochure. Follow these rules:\n\n"
             "### Color Usage (CRITICAL)\n"
