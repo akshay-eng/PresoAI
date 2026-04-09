@@ -569,7 +569,8 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     publisher = _get_publisher(state)
     await publisher.publish("writing_slides", 0.7, "Designing slides with full visual control...")
 
-    llm = _get_llm(state, temperature=0.5, max_tokens=16000)
+    is_creative = state.get("creative_mode", False)
+    llm = _get_llm(state, temperature=0.7 if is_creative else 0.5, max_tokens=32000 if is_creative else 16000)
 
     outline = state.get("outline", [])
     summary = state.get("research_summary", "")
@@ -611,13 +612,30 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         logos_lines = "\n".join(f'- "{name}": {url}' for name, url in brand_logos.items())
         logos_section = (
             "\n\n## Available Brand Logos (from logo.dev)\n"
-            "When any of these brands/tools is referenced on a slide, ADD THEIR LOGO using "
-            "`slide.addImage({ path: \"<url>\", x, y, w, h })`. "
-            "Recommended size: w 0.6-1.2 inches, h 0.6-0.8 inches. "
-            "Place near the relevant content (e.g. inside a card header, beside a heading, "
-            "or as a row of vendor logos for a tools section). "
-            "Do NOT invent URLs — only use the ones below.\n"
-            f"{logos_lines}\n"
+            "When any of these brands/tools is referenced on a slide, ADD THEIR LOGO.\n\n"
+            "### How to display logos PROFESSIONALLY:\n"
+            "Logos from logo.dev are small icons. To make them look polished:\n\n"
+            "1. **Logo + Label Card Pattern** (PREFERRED): Create a colored/white card (addShape RECTANGLE), "
+            "place the logo inside it, and add the brand name as bold text BELOW the logo.\n"
+            "   ```js\n"
+            "   // Example: branded card with logo\n"
+            "   slide.addShape('rect', { x: 1.0, y: 1.5, w: 1.8, h: 2.0, fill: { color: 'F5F5F5' }, "
+            "shadow: { type: 'outer', blur: 4, offset: 2, color: '000000', opacity: 0.15 }, rectRadius: 0.1 });\n"
+            "   slide.addImage({ path: '<logo_url>', x: 1.3, y: 1.7, w: 1.2, h: 1.0 }); // centered in card\n"
+            "   slide.addText('Brand Name', { x: 1.0, y: 2.8, w: 1.8, h: 0.4, align: 'center', "
+            "fontSize: 11, bold: true, color: '333333' });\n"
+            "   ```\n\n"
+            "2. **Vendor Grid** (for tool/tech landscape slides): Arrange 3-6 logo cards in a grid "
+            "(2-3 columns x 1-2 rows) with consistent spacing. Each cell: logo + name.\n\n"
+            "3. **Inline with headings**: Place logo (w: 0.5, h: 0.5) to the LEFT of the brand name text, "
+            "vertically centered. Always add the text name next to the logo.\n\n"
+            "### Rules:\n"
+            "- ALWAYS display the brand NAME alongside the logo (the logos alone are too small to recognize).\n"
+            "- Minimum logo size: w: 0.8, h: 0.6 inches (bigger is better for readability).\n"
+            "- For vendor landscape slides: use w: 1.0-1.2, h: 0.8-1.0 inside dedicated cards.\n"
+            "- Give logos a light background card/container to make them pop against any slide color.\n"
+            "- Do NOT invent URLs — only use the ones below.\n\n"
+            f"Available logos:\n{logos_lines}\n"
         )
 
     messages = [
@@ -629,7 +647,39 @@ async def slide_writer(state: PPTGenerationState) -> dict:
             f"{style_section}"
             f"{kg_section}"
             f"{logos_section}\n"
-            "## CATALOGUE-QUALITY DESIGN PRINCIPLES\n"
+            + (
+                "## CREATIVE MODE — ADVANCED VISUALIZATION (ENABLED)\n"
+                "The user has enabled CREATIVE MODE. You MUST go beyond basic text+bullet slides. "
+                "For EVERY slide, think: what is the BEST visual way to present this data?\n\n"
+                "### Mandatory Visualization Techniques (use at least 3-4 across the deck):\n"
+                "1. **Data Tables** — Use `slide.addTable(rows, opts)` for comparisons, feature matrices, "
+                "pricing tiers, or any structured data. Style with colored header rows, alternating row colors, borders.\n"
+                "2. **Pyramid/Funnel** — Stack colored trapezoid shapes (addShape TRAPEZOID) for hierarchies, "
+                "priority tiers, or funnels (e.g., sales funnel, maturity model).\n"
+                "3. **Process Flows** — Numbered circles/boxes connected by arrow shapes for workflows, "
+                "pipelines, or step-by-step processes. Use addShape for each step + addShape ARROW between.\n"
+                "4. **Comparison Charts** — Side-by-side colored bars using addShape RECTANGLE with proportional widths "
+                "to visually represent metrics, percentages, or scores.\n"
+                "5. **Timeline** — Horizontal line with evenly-spaced circles/diamonds and text labels for milestones.\n"
+                "6. **Quadrant/Matrix** — 2x2 grid of colored rectangles for strategic frameworks "
+                "(e.g., risk vs impact, effort vs value).\n"
+                "7. **Hub & Spoke** — Central circle with lines radiating to surrounding circles for ecosystems, "
+                "integrations, or relationship diagrams.\n"
+                "8. **Stacked Bar/Progress** — Horizontal colored segments showing proportions or progress.\n"
+                "9. **Icon Grids** — Use brand logos (from logo.dev if available) arranged in a clean grid "
+                "with labels underneath for tool/vendor landscapes.\n"
+                "10. **Stat Callout Cards** — Large bold numbers (48-72pt) with small descriptive labels in colored cards.\n\n"
+                "### Creative Mode Rules:\n"
+                "- NEVER use plain bullet lists — always find a visual structure.\n"
+                "- Each slide must have a DIFFERENT layout — no two slides should look the same.\n"
+                "- If a slide has numbers/metrics, use stat callouts or bar visualizations, not text.\n"
+                "- If a slide has a process, use a flow diagram, not text.\n"
+                "- If a slide compares things, use a table or matrix, not text.\n"
+                "- COMPLETE every visualization you start — don't leave shapes half-done or misaligned.\n"
+                "- Test your x/y/w/h coordinates mentally: shapes must not overlap unintentionally.\n\n"
+                if is_creative else ""
+            )
+            + "## CATALOGUE-QUALITY DESIGN PRINCIPLES\n"
             "Think of each slide as a page in a premium corporate brochure. Follow these rules:\n\n"
             "### Color Usage (CRITICAL)\n"
             "- EVERY slide must use colors intentionally — not just black text on white.\n"

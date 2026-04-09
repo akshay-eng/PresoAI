@@ -71,6 +71,7 @@ export const api = {
     audienceType: string;
     modelId: string;
     engine?: "claude-code" | "claude-gemini" | "node-worker";
+    creativeMode?: boolean;
     chatImageKeys?: string[];
   }) =>
     fetchApi<{ jobId: string }>(

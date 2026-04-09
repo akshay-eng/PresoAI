@@ -145,6 +145,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [projectName, setProjectName] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
+  const [creativeMode, setCreativeMode] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -231,6 +232,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         setSelectedModelId(modelFromUrl);
         const engineFromUrl = searchParams.get("engine") as typeof engine | null;
         if (engineFromUrl) setEngine(engineFromUrl);
+        if (searchParams.get("creativeMode") === "1") setCreativeMode(true);
         setAutoGenerateHandled(true);
         setPrompt("");
         router.replace(`/projects/${id}`, { scroll: false });
@@ -279,6 +281,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         audienceType,
         modelId: selectedModelId,
         engine,
+        creativeMode,
         chatImageKeys: chatMessages
           .filter((m) => m.metadata?.imageKeys)
           .flatMap((m) => (m.metadata!.imageKeys as string[]) || []),
@@ -288,7 +291,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       setActivePanel("plan");
       addMessage(id, {
         role: "assistant",
-        content: `Starting presentation generation using ${engine === "claude-gemini" ? "Preso Plus" : engine === "claude-code" ? "Preso Pro" : "Preso Elite"} engine...`,
+        content: `Starting presentation generation using ${engine === "claude-gemini" ? "Preso Plus" : engine === "claude-code" ? "Preso Pro" : "Preso Elite"} engine${creativeMode ? " with Creative Mode" : ""}...`,
         metadata: { phase: "starting", jobId: data.jobId, engine },
       });
       // Auto-open the plan panel to show live progress (Canva-like experience)
@@ -962,6 +965,19 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                           <option key={n} value={n}>{n} slides</option>
                         ))}
                       </select>
+                      <button
+                        type="button"
+                        onClick={() => setCreativeMode(!creativeMode)}
+                        className={`h-7 rounded-md px-2 text-[11px] transition-colors flex items-center gap-1 ${
+                          creativeMode
+                            ? "bg-amber-500/15 text-amber-500 ring-1 ring-amber-500/30"
+                            : "border border-border bg-secondary/50 text-muted-foreground hover:text-foreground"
+                        }`}
+                        title="Creative Mode: advanced visualizations — tables, pyramids, graphs, infographics"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        Creative
+                      </button>
                     </div>
                     <button
                       type="submit"

@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [numSlides, setNumSlides] = useState(10);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
+  const [creativeMode, setCreativeMode] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const [showCreateStyle, setShowCreateStyle] = useState(false);
   const [showStyleDetail, setShowStyleDetail] = useState<string | null>(null);
@@ -121,6 +122,7 @@ export default function DashboardPage() {
         autoGenerate: "1",
         modelId: selectedModelId,
         engine,
+        ...(creativeMode ? { creativeMode: "1" } : {}),
       });
       router.push(`/projects/${p.id}?${params.toString()}`);
     },
@@ -478,6 +480,19 @@ export default function DashboardPage() {
                   >
                     {audienceType} / {numSlides} slides
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setCreativeMode(!creativeMode)}
+                    className={`text-[10px] rounded-md px-1.5 py-0.5 transition-colors flex items-center gap-0.5 ${
+                      creativeMode
+                        ? "bg-amber-500/15 text-amber-500 ring-1 ring-amber-500/30"
+                        : "bg-secondary text-muted-foreground hover:text-foreground"
+                    }`}
+                    title="Creative Mode: uses advanced visualizations like tables, pyramids, graphs, and infographic-style layouts"
+                  >
+                    <Sparkles className="h-2.5 w-2.5" />
+                    Creative
+                  </button>
                 </div>
 
                 <button
