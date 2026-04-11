@@ -227,12 +227,14 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         setPrompt("");
       }
 
+      // Read creativeMode from URL (always, even if auto-generate doesn't fire)
+      if (searchParams.get("creativeMode") === "1") setCreativeMode(true);
+
       // Auto-generate if coming from dashboard
       if (shouldAutoGenerate && p.prompt && modelFromUrl && !autoGenerateHandled) {
         setSelectedModelId(modelFromUrl);
         const engineFromUrl = searchParams.get("engine") as typeof engine | null;
         if (engineFromUrl) setEngine(engineFromUrl);
-        if (searchParams.get("creativeMode") === "1") setCreativeMode(true);
         setAutoGenerateHandled(true);
         setPrompt("");
         router.replace(`/projects/${id}`, { scroll: false });
