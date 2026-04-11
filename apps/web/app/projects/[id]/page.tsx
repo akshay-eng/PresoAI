@@ -481,8 +481,15 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       metadata: { audienceType, numSlides },
     });
 
-    setSubmittedPrompt(currentPrompt);
-    updateMutation.mutate({ prompt: currentPrompt, numSlides, audienceType });
+    // Build context-aware prompt: include the original topic + follow-up instruction
+    // so the LLM knows what deck was previously generated and what to change
+    const originalPrompt = p?.prompt || submittedPrompt || "";
+    const contextPrompt = originalPrompt
+      ? `[FOLLOW-UP] Original deck topic: "${originalPrompt}"\n\nUser's modification request: ${currentPrompt}\n\nRegenerate the presentation incorporating this feedback. Keep the same topic but apply the requested changes.`
+      : currentPrompt;
+
+    setSubmittedPrompt(contextPrompt);
+    updateMutation.mutate({ prompt: contextPrompt, numSlides, audienceType });
 
     // Clear the input
     setPrompt("");
@@ -963,13 +970,13 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                       onChange={(e) => { setPrompt(e.target.value); autoResize(); }}
                       onPaste={handlePasteImage}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                        if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
                           if (!hasSubmitted) handleSendPrompt(e);
                           else handleSendFollowUp();
                         }
                       }}
-                      placeholder={hasSubmitted ? "Describe changes or paste images (Ctrl+V)..." : "Describe your idea or paste images (Ctrl+V)..."}
+                      placeholder={hasSubmitted ? "Ask me to modify the deck, regenerate, or describe changes..." : "Describe your idea or paste images (Ctrl+V)..."}
                       className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground/40 min-w-0 py-2 resize-none overflow-hidden leading-relaxed"
                       rows={1}
                       style={{ maxHeight: 200 }}
