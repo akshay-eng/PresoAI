@@ -872,19 +872,15 @@ def _parse_json_array(raw: str) -> list[dict]:
 
 
 def _parse_slide_codes(raw: str) -> list[dict]:
-    """Parse slide code objects from LLM output. Handles markdown code blocks."""
+    """Parse slide code objects from LLM output. Handles markdown code blocks
+    and malformed JSON from code strings with unescaped characters."""
     import re
 
     # Strip markdown code fences
     cleaned = raw.strip()
-    if "```json" in cleaned:
-        match = re.search(r"```json\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if match:
-            cleaned = match.group(1)
-    elif "```" in cleaned:
-        match = re.search(r"```\s*(.*?)\s*```", cleaned, re.DOTALL)
-        if match:
-            cleaned = match.group(1)
+    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned, re.DOTALL)
+    if fence_match:
+        cleaned = fence_match.group(1)
 
     # Find the JSON array
     start = cleaned.find("[")
@@ -892,13 +888,99 @@ def _parse_slide_codes(raw: str) -> list[dict]:
     if start == -1 or end == -1:
         return []
 
+    json_str = cleaned[start : end + 1]
+
+    # Attempt 1: direct parse
     try:
-        slides = json.loads(cleaned[start : end + 1])
+        slides = json.loads(json_str)
         if isinstance(slides, list):
             return slides
-    except json.JSONDecodeError as e:
-        logger.error("slide_code_json_parse_error", error=str(e))
+    except json.JSONDecodeError:
+        pass
 
+    # Attempt 2: fix common issues — control chars in "code" string values
+    try:
+        # Replace literal newlines inside strings with \\n
+        fixed = re.sub(
+            r'"code"\s*:\s*"',
+            lambda m: m.group(0),
+            json_str,
+        )
+        slides = json.loads(fixed)
+        if isinstance(slides, list):
+            return slides
+    except json.JSONDecodeError:
+        pass
+
+    # Attempt 3: extract individual slide objects with regex
+    try:
+        slide_objects = []
+        # Match each {...} object containing slide_number and code
+        obj_pattern = re.compile(
+            r'\{\s*"slide_number"\s*:\s*(\d+)\s*,'
+            r'.*?"title"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,'
+            r'.*?"speaker_notes"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,'
+            r'.*?"code"\s*:\s*"((?:[^"\\]|\\.)*)"'
+            r'\s*\}',
+            re.DOTALL,
+        )
+        for m in obj_pattern.finditer(json_str):
+            slide_objects.append({
+                "slide_number": int(m.group(1)),
+                "title": m.group(2).replace('\\"', '"'),
+                "speaker_notes": m.group(3).replace('\\"', '"'),
+                "code": m.group(4).replace('\\"', '"').replace('\\n', '\n'),
+            })
+        if slide_objects:
+            logger.info("slide_codes_parsed_via_regex", count=len(slide_objects))
+            return slide_objects
+    except Exception as e:
+        logger.error("slide_code_regex_parse_error", error=str(e))
+
+    # Attempt 4: try parsing each object individually by finding balanced braces
+    try:
+        slide_objects = []
+        depth = 0
+        obj_start = None
+        for i, ch in enumerate(json_str):
+            if ch == '{':
+                if depth == 1:  # top-level object inside the array
+                    obj_start = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 1 and obj_start is not None:
+                    obj_str = json_str[obj_start:i + 1]
+                    try:
+                        obj = json.loads(obj_str)
+                        if "code" in obj:
+                            slide_objects.append(obj)
+                    except json.JSONDecodeError:
+                        # Try fixing the code field by re-escaping
+                        code_match = re.search(r'"code"\s*:\s*"', obj_str)
+                        if code_match:
+                            # Find the last " before the closing }
+                            code_start = code_match.end()
+                            last_quote = obj_str.rfind('"', code_start)
+                            if last_quote > code_start:
+                                code_val = obj_str[code_start:last_quote]
+                                # Re-escape for JSON
+                                code_val = code_val.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+                                fixed_obj = obj_str[:code_start] + code_val + obj_str[last_quote:]
+                                try:
+                                    obj = json.loads(fixed_obj)
+                                    if "code" in obj:
+                                        slide_objects.append(obj)
+                                except json.JSONDecodeError:
+                                    pass
+                    obj_start = None
+        if slide_objects:
+            logger.info("slide_codes_parsed_via_brace_matching", count=len(slide_objects))
+            return slide_objects
+    except Exception as e:
+        logger.error("slide_code_brace_parse_error", error=str(e))
+
+    logger.error("slide_code_json_parse_error", raw_sample=json_str[:500])
     return []
 
 
