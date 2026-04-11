@@ -87,7 +87,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const {
     setJobId, isGenerating, jobId, phase, progress, message, outline, error,
-    updateProgress,
+    updateProgress, presentationId: completedPresentationId,
   } = useGenerationStore();
 
   const addMessage = useChatStore((s) => s.addMessage);
@@ -124,7 +124,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       addMessage(id, {
         role: "assistant",
         content: "Presentation generated successfully! You can download it now.",
-        metadata: { phase: "complete", jobId },
+        metadata: { phase: "complete", jobId, presentationId: completedPresentationId || undefined },
       });
       setActivePanel("preview");
       queryClient.invalidateQueries({ queryKey: ["project", id] });
@@ -546,16 +546,24 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   // Resolve presentation ID from a chat message (tries job output, then latest project presentation)
   async function _resolvePresentationId(msg: { metadata?: Record<string, unknown> }): Promise<string | undefined> {
     try {
-      let presId: string | undefined;
+      // 1. Direct presentationId stored in the chat message (best — each message maps to its own generation)
+      if (msg.metadata?.presentationId) {
+        return msg.metadata.presentationId as string;
+      }
+
+      // 2. Look up via jobId → job output
       if (msg.metadata?.jobId) {
         const jobData = await api.getJob(msg.metadata.jobId as string) as { output?: { presentationId?: string } };
-        presId = jobData?.output?.presentationId;
+        if (jobData?.output?.presentationId) return jobData.output.presentationId;
       }
-      if (!presId && p?.presentations?.length) {
-        presId = p.presentations[0]?.id;
+
+      // 3. Fallback to latest presentation (only if no other option)
+      if (p?.presentations?.length) {
+        return p.presentations[0]?.id;
       }
-      if (!presId) { toast.error("No presentation found"); return undefined; }
-      return presId;
+
+      toast.error("No presentation found");
+      return undefined;
     } catch { toast.error("Could not find presentation"); return undefined; }
   }
 

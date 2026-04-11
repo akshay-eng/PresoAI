@@ -30,6 +30,7 @@ interface GenerationState {
   researchSummary: string;
   quality: number | null;
   reflectionIssues: string[];
+  presentationId: string | null;
 
   setJobId: (jobId: string) => void;
   updateProgress: (phase: string, progress: number, message: string, data?: unknown) => void;
@@ -80,6 +81,7 @@ export const useGenerationStore = create<GenerationState>((set) => ({
   researchSummary: "",
   quality: null,
   reflectionIssues: [],
+  presentationId: null,
 
   setJobId: (jobId) => set({
     jobId,
@@ -103,6 +105,7 @@ export const useGenerationStore = create<GenerationState>((set) => ({
         if (d.slides) updates.slides = d.slides as unknown[];
         if (d.quality) updates.quality = d.quality as number;
         if (d.issues) updates.reflectionIssues = d.issues as string[];
+        if (d.presentationId) updates.presentationId = d.presentationId as string;
       }
 
       if (phase === "complete") {
@@ -136,5 +139,6 @@ export const useGenerationStore = create<GenerationState>((set) => ({
       researchSummary: "",
       quality: null,
       reflectionIssues: [],
+      presentationId: null,
     }),
 }));
