@@ -61,7 +61,7 @@ async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[
             # Replace the marker with addImage code
             replacement = (
                 f'slide.addImage({{ path: "{url}", '
-                f'x: 0.5, y: 1.5, w: 12.33, h: 5.0 }});'
+                f'x: 0.5, y: 1.3, w: 12.33, h: 5.0 }});'
             )
             code = code[:m.start()] + replacement + code[m.end():]
             logger.info("kroki_diagram_embedded", type=diagram_type, slide=slide.get("slide_number"))
@@ -617,10 +617,24 @@ slide.background = { color: "HEX" };
 slide.addImage({ path: "https://url.com/image.png", x, y, w, h });
 For logos: ALWAYS place on a light background card, minimum w: 0.8
 
-**Tables:**
-slide.addTable(rows, { x, y, w, autoPage: false, border: { pt: 1, color: "CCCCCC" } });
-Row format: [{ text: "Header", options: { fill: { color: "1A1A2E" }, color: "FFFFFF", bold: true, fontSize: 12, align: "center" } }, ...]
-Data rows: [{ text: "Value", options: { fill: { color: "F5F5F5" }, color: "333333", fontSize: 11 } }]
+**Tables (MUST look professional — never plain/boring):**
+slide.addTable(rows, { x, y, w, autoPage: false, border: { pt: 0.5, color: "E0E0E0" }, colW: [3, 4.5, 4.5] });
+Header row: [
+  { text: "ASPECT", options: { fill: { color: "1A1A2E" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center", valign: "middle" } },
+  { text: "MONOLITH", options: { fill: { color: "2D3561" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center" } },
+  { text: "MICROSERVICES", options: { fill: { color: "0F3460" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center" } }
+]
+Data rows (alternate fills for readability):
+  Even rows: { fill: { color: "F8F9FA" } }
+  Odd rows:  { fill: { color: "FFFFFF" } }
+  Cell text: { color: "333333", fontSize: 10, valign: "middle", align: "left", margin: [4, 8, 4, 8] }
+IMPORTANT table rules:
+- ALWAYS set colW to control column widths (proportional to content)
+- ALWAYS alternate row fills (zebra striping) for readability
+- Header row MUST have bold white text on dark colored background
+- Use margin: [4, 8, 4, 8] in cells for padding (top, right, bottom, left in points)
+- Add a colored accent bar above the table: addShape RECTANGLE { x, y: tableY-0.08, w, h: 0.08, fill: accent }
+- Each cell should have ONE clear line of content, not mashed text
 
 **Charts:**
 slide.addChart(pres.charts.BAR, [{ name: "Series", labels: [...], values: [...] }], { x, y, w, h, chartColors: ["HEX1"], showValue: true });
@@ -666,6 +680,23 @@ slide.addText("Brand Name", { x: 1.0, y: 3.3, w: 1.8, h: 0.5, fontSize: 11, bold
 - Use breakLine:true between text array items
 - Keep font sizes consistent: titles 24-32, subtitles 16-18, body 11-14, labels 9-11
 - Maximum 5-6 visual elements per slide — don't overcrowd
+
+### CONTENT RICHNESS (CRITICAL — slides must NOT be empty/basic)
+- Every content slide MUST have at minimum: title + 2-3 paragraphs or a rich table or a detailed diagram
+- Tables MUST have real data — at least 4-5 rows with specific values, not generic placeholders
+- Use the research data from the outline — include actual numbers, percentages, tool names, comparisons
+- Card text should be 2-4 sentences explaining the concept, not just a single phrase
+- Stat callouts need context: the number + what it measures + why it matters (3 text elements per stat)
+- NEVER leave large empty areas on a slide — fill the content zone (y: 1.3 to 5.8)
+- If a slide looks sparse, add a supporting detail card, a key takeaway bar, or a footnote section
+
+### ELEMENT STACKING ORDER (prevents overlapping)
+- Place background shapes FIRST (full-width bars, section headers)
+- Place container cards SECOND
+- Place text INSIDE containers THIRD
+- Place accent elements (lines, dots, decorators) LAST
+- NEVER place two independent content groups at the same y position unless they are in separate columns
+- If a slide has both a diagram AND text, use 2-column layout: diagram left (w:7), text right (w:5)
 """
 
 
@@ -754,33 +785,36 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     if use_diagram_images:
         diagram_section = (
             "\n\n## DIAGRAM IMAGES MODE (Kroki — ENABLED)\n"
-            "For complex diagrams (sequence diagrams, architecture, ER, flowcharts), you can embed "
-            "rendered diagram images using Kroki URLs.\n\n"
+            "For complex diagrams, embed rendered images via Kroki markers.\n\n"
+            "### IMPORTANT LAYOUT RULES FOR DIAGRAMS:\n"
+            "- A diagram slide should ONLY have: title (y:0.3-1.2) + diagram image (y:1.3-5.8) + optional caption\n"
+            "- NEVER place other shapes/text/cards that overlap with the diagram area\n"
+            "- If you need text alongside a diagram, use 2-column: diagram left (x:0.5, w:7), text right (x:8, w:4.5)\n"
+            "- NEVER put a diagram AND a table on the same slide\n\n"
             "### How to use:\n"
-            "Write the diagram in Mermaid/PlantUML/D2 syntax, then use this URL pattern:\n"
+            "Write the diagram source as COMMENTS with this exact format:\n"
             "```\n"
-            "// To embed a Mermaid diagram as an image:\n"
-            "// 1. Write your Mermaid source\n"
-            "// 2. Use the kroki.io URL with base64-encoded source\n"
-            "slide.addImage({ path: 'https://kroki.io/mermaid/png/' + btoa(DIAGRAM_SOURCE), x: 1, y: 1.5, w: 11, h: 5 });\n"
-            "```\n\n"
-            "IMPORTANT: Since btoa() may not be available in the sandbox, instead write the diagram "
-            "source as a COMMENT in the code with this exact format:\n"
-            "```\n"
+            "// First: set slide background and title\n"
+            "slide.background = { color: 'FFFFFF' };\n"
+            "slide.addText('ARCHITECTURE', { x: 0.5, y: 0.3, w: 5, h: 0.3, fontSize: 10, bold: true, color: '00B4D8', charSpacing: 2 });\n"
+            "slide.addText('System Architecture', { x: 0.5, y: 0.6, w: 10, h: 0.6, fontSize: 28, bold: true, color: '1A1A2E' });\n"
+            "// Then: the Kroki diagram (will be replaced with addImage automatically)\n"
             "// KROKI_DIAGRAM:mermaid\n"
             "// graph TD\n"
-            "//   A[Start] --> B{Decision}\n"
-            "//   B -->|Yes| C[Action]\n"
-            "//   B -->|No| D[End]\n"
+            "//   A[API Gateway] --> B[Auth Service]\n"
+            "//   A --> C[Order Service]\n"
+            "//   C --> D[Payment Service]\n"
+            "//   C --> E[Notification Service]\n"
             "// END_KROKI_DIAGRAM\n"
-            "// The image will be placed at: x:0.5, y:1.5, w:12, h:5\n"
+            "// Caption below diagram\n"
+            "slide.addText('Fig 1: Request flow through microservices', { x: 0.5, y: 6.5, w: 12, h: 0.3, fontSize: 9, italic: true, color: '999999' });\n"
             "```\n"
-            "The system will automatically render this and embed the image.\n\n"
+            "The system renders the diagram and embeds it at x:0.5, y:1.3, w:12.33, h:5.0.\n\n"
             "### Supported types: mermaid, plantuml, d2, graphviz, blockdiag, seqdiag, erd\n\n"
             "### When to use Kroki vs shapes:\n"
-            "- Use Kroki for: sequence diagrams, complex flowcharts with many nodes, ER diagrams, "
-            "network diagrams, Gantt charts\n"
-            "- Use native shapes for: simple 3-5 step flows, card layouts, stat callouts, comparisons\n"
+            "- Kroki: sequence diagrams, complex flowcharts (6+ nodes), ER diagrams, network diagrams\n"
+            "- Native shapes: simple 3-5 step flows, card layouts, stat callouts, comparisons, timelines\n"
+            "- PREFER native shapes when possible — they're editable in PowerPoint\n"
         )
     else:
         diagram_section = (
