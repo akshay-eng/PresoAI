@@ -27,7 +27,7 @@ from app.config import settings
 logger = structlog.get_logger()
 
 LOGO_DEV_SEARCH_URL = "https://api.logo.dev/search"
-MAX_BRANDS = 12  # cap to keep prompts small and API calls bounded
+MAX_BRANDS = 5  # keep logo usage minimal — content matters more
 
 
 async def extract_brand_mentions(text: str, llm: Any) -> list[str]:
@@ -41,11 +41,12 @@ async def extract_brand_mentions(text: str, llm: Any) -> list[str]:
         return []
 
     system = (
-        "Extract brand, company, product, or technology names mentioned in the text. "
-        "Only return real entities that have a recognizable logo "
-        "(e.g. 'Kubernetes', 'Prometheus', 'Stripe', 'Sweetgreen'). "
-        "Skip generic words like 'ops', 'monitoring', 'cloud'. "
-        "Return ONLY a JSON array of strings, no prose. Maximum 12 entries. "
+        "Extract the TOP 3-5 most important brand/company/product names from the text. "
+        "Only return names that are CENTRAL to the presentation's topic — "
+        "not every tool mentioned in passing. "
+        "Prioritize: the main subject companies, key competitors, or tools that are the FOCUS of a slide. "
+        "Skip: generic terms, minor mentions, infrastructure that's just context. "
+        "Return ONLY a JSON array of strings, no prose. Maximum 5 entries. "
         "If nothing applies, return []."
     )
 
