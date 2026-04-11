@@ -378,7 +378,10 @@ async def synthesizer(state: PPTGenerationState) -> dict:
 
 async def content_planner(state: PPTGenerationState) -> dict:
     publisher = _get_publisher(state)
-    await publisher.publish("planning", 0.6, "Planning slide outline...")
+    audience = state.get("audience_type", "general")
+    is_creative = state.get("creative_mode", False)
+    mode_label = " (Creative Mode)" if is_creative else ""
+    await publisher.publish("planning", 0.6, f"Planning {audience} slide outline{mode_label}...")
 
     llm = _get_llm(state, temperature=0.3)
     structured_llm = llm.with_structured_output(OutlineOutput)
@@ -431,8 +434,12 @@ async def content_planner(state: PPTGenerationState) -> dict:
             "- 'title' only for the opening slide\n"
             "- 'image_focus' for architecture or diagram slides\n\n"
             f"{layout_hint}"
-            f"Target audience: {audience}.\n"
-            f"{style_context}"
+            + {
+                "executive": "Target audience: EXECUTIVE. Focus outline on business impact, ROI, strategic positioning, and decision-enabling metrics. Less 'how', more 'why' and 'so what'.\n",
+                "technical": "Target audience: TECHNICAL. Focus outline on architecture, implementation details, system design, integration points, and performance benchmarks.\n",
+                "general": "Target audience: GENERAL. Focus outline on clear explanations, relatable analogies, and balanced business + technical content.\n",
+            }.get(audience, f"Target audience: {audience}.\n")
+            + f"{style_context}"
             f"{kg_section}"
         )),
     ]
@@ -627,15 +634,20 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     full control over every visual element, color, shape, and position.
     """
     publisher = _get_publisher(state)
-    await publisher.publish("writing_slides", 0.7, "Designing slides with full visual control...")
-
     is_creative = state.get("creative_mode", False)
+    audience = state.get("audience_type", "general")
+
+    mode_label = "Creative Mode" if is_creative else "Standard Mode"
+    await publisher.publish(
+        "writing_slides", 0.7,
+        f"Designing slides with {mode_label} for {audience} audience..."
+    )
+
     llm = _get_llm(state, temperature=0.7 if is_creative else 0.5, max_tokens=32000 if is_creative else 16000)
 
     outline = state.get("outline", [])
     summary = state.get("research_summary", "")
     prompt = state.get("user_prompt", "")
-    audience = state.get("audience_type", "general")
     style_guide = state.get("style_guide", "")
     num_slides = state.get("num_slides", len(outline))
 
@@ -768,7 +780,39 @@ async def slide_writer(state: PPTGenerationState) -> dict:
             "  You have access to `slide` and `pres`. Do NOT call pres.addSlide().\n"
             "  Colors are 6-char hex WITHOUT # prefix. NEVER use # in colors.\n"
             "  Create fresh option objects for each addShape/addText call — never reuse.\n\n"
-            f"Target audience: {audience}.\n"
+            + {
+                "executive": (
+                    "## AUDIENCE: EXECUTIVE (C-Suite / VP / Director)\n"
+                    "- Lead with BUSINESS IMPACT — revenue, cost savings, ROI, market position\n"
+                    "- Use large stat callouts (48-72pt numbers) for key metrics\n"
+                    "- Minimal technical jargon — translate tech concepts to business outcomes\n"
+                    "- Include strategic frameworks: quadrants, maturity models, competitive landscapes\n"
+                    "- Slides should answer: 'Why should I care?' and 'What's the bottom line?'\n"
+                    "- Keep text sparse — 3-4 bullet points max, each under 15 words\n"
+                    "- Use premium, polished design — dark backgrounds, gold/teal accents\n"
+                ),
+                "technical": (
+                    "## AUDIENCE: TECHNICAL (Engineers / Architects / DevOps)\n"
+                    "- Lead with ARCHITECTURE and HOW IT WORKS — system diagrams, data flows, APIs\n"
+                    "- Include technical details: protocols, latency numbers, throughput metrics\n"
+                    "- Use process flow diagrams, architecture boxes, and integration arrows\n"
+                    "- Include code snippets or config examples where relevant (in monospace text)\n"
+                    "- Slides should answer: 'How does this work?' and 'How do I implement it?'\n"
+                    "- More text density is OK — engineers expect detailed slides\n"
+                    "- Use clean, structured layouts — tables for comparisons, timelines for rollouts\n"
+                ),
+                "general": (
+                    "## AUDIENCE: GENERAL (Mixed / All-hands / External)\n"
+                    "- Balance business value with approachable explanations\n"
+                    "- Use analogies and visual metaphors to explain complex topics\n"
+                    "- Include a mix of stats, stories, and visuals\n"
+                    "- Avoid deep technical details — keep it accessible\n"
+                    "- Slides should answer: 'What is this?' and 'Why does it matter?'\n"
+                    "- Medium text density — enough context without overwhelming\n"
+                    "- Use friendly, modern design — lighter backgrounds, vibrant accents\n"
+                ),
+            }.get(audience, f"Target audience: {audience}.\n")
+            + "\n"
         )),
     ]
 
