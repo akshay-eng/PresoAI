@@ -227,8 +227,12 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         setPrompt("");
       }
 
-      // Read creativeMode from URL (always, even if auto-generate doesn't fire)
+      // Read ALL settings from URL params (passed from dashboard) — these take priority
       if (searchParams.get("creativeMode") === "1") setCreativeMode(true);
+      const urlNumSlides = searchParams.get("numSlides");
+      if (urlNumSlides) setNumSlides(parseInt(urlNumSlides, 10));
+      const urlAudience = searchParams.get("audienceType");
+      if (urlAudience) setAudienceType(urlAudience);
 
       // Auto-generate if coming from dashboard
       if (shouldAutoGenerate && p.prompt && modelFromUrl && !autoGenerateHandled) {

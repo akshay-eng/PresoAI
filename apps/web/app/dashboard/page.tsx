@@ -45,6 +45,9 @@ export default function DashboardPage() {
   const [deletingStyle, setDeletingStyle] = useState(false);
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [templateFile, setTemplateFile] = useState<{ file: File; key: string } | null>(null);
+  const [referenceFiles, setReferenceFiles] = useState<Array<{ file: File; key: string }>>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load models for the selector
@@ -91,6 +94,22 @@ export default function DashboardPage() {
     enabled: !!session,
   });
 
+  async function uploadFileToS3(file: File, purpose: "template" | "reference"): Promise<string> {
+    const presignRes = await fetch("/api/upload/presign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: file.name,
+        contentType: file.type || "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        purpose,
+      }),
+    });
+    if (!presignRes.ok) throw new Error("Presign failed");
+    const { signedUrl, key } = (await presignRes.json()) as { signedUrl: string; key: string };
+    await fetch(signedUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+    return key;
+  }
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const prompt = quickPrompt.trim();
@@ -103,12 +122,30 @@ export default function DashboardPage() {
       });
       return project;
     },
-    onSuccess: (project: unknown) => {
+    onSuccess: async (project: unknown) => {
       const p = project as { id: string };
       queryClient.invalidateQueries({ queryKey: ["projects"] });
 
+      // Attach template if uploaded
+      if (templateFile) {
+        try {
+          await api.addTemplate(p.id, templateFile.key);
+        } catch { /* continue even if attach fails */ }
+      }
+
+      // Attach reference files if uploaded
+      for (const ref of referenceFiles) {
+        try {
+          await api.addReference(p.id, {
+            s3Key: ref.key,
+            fileName: ref.file.name,
+            fileType: ref.file.type || "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            fileSize: ref.file.size,
+          });
+        } catch { /* continue */ }
+      }
+
       // If the user pasted images, seed the chat with a user message carrying the image keys
-      // so the project page's generate flow picks them up via chatImageKeys.
       if (pastedImages.length > 0) {
         useChatStore.getState().addMessage(p.id, {
           role: "user",
@@ -122,6 +159,8 @@ export default function DashboardPage() {
         autoGenerate: "1",
         modelId: selectedModelId,
         engine,
+        numSlides: String(numSlides),
+        audienceType,
         ...(creativeMode ? { creativeMode: "1" } : {}),
       });
       router.push(`/projects/${p.id}?${params.toString()}`);
@@ -435,9 +474,80 @@ export default function DashboardPage() {
                             </div>
                           )}
 
-                          <p className="text-[10px] text-muted-foreground/50 pt-1">
-                            Templates and references can be added inside the project.
-                          </p>
+                          {/* Template upload */}
+                          <div>
+                            <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1 mb-1">
+                              <Palette className="h-3 w-3" /> Brand Template
+                            </label>
+                            {templateFile ? (
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/50 rounded-lg px-2 py-1.5">
+                                <FileText className="h-3 w-3 shrink-0" />
+                                <span className="truncate flex-1">{templateFile.file.name}</span>
+                                <button type="button" onClick={() => setTemplateFile(null)} className="text-muted-foreground/60 hover:text-foreground">
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/30 hover:bg-secondary/50 rounded-lg px-2 py-1.5 cursor-pointer transition-colors">
+                                <Upload className="h-3 w-3" />
+                                Upload .pptx template
+                                <input
+                                  type="file"
+                                  accept=".pptx"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    setUploadingAttachment(true);
+                                    try {
+                                      const key = await uploadFileToS3(file, "template");
+                                      setTemplateFile({ file, key });
+                                    } catch { toast.error("Template upload failed"); }
+                                    setUploadingAttachment(false);
+                                  }}
+                                />
+                              </label>
+                            )}
+                          </div>
+
+                          {/* Reference files upload */}
+                          <div>
+                            <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1 mb-1">
+                              <FileText className="h-3 w-3" /> Reference Decks
+                            </label>
+                            {referenceFiles.length > 0 && (
+                              <div className="space-y-1 mb-1.5">
+                                {referenceFiles.map((ref, i) => (
+                                  <div key={ref.key} className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/50 rounded-lg px-2 py-1">
+                                    <FileText className="h-3 w-3 shrink-0" />
+                                    <span className="truncate flex-1">{ref.file.name}</span>
+                                    <button type="button" onClick={() => setReferenceFiles((prev) => prev.filter((_, j) => j !== i))} className="text-muted-foreground/60 hover:text-foreground">
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <label className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/30 hover:bg-secondary/50 rounded-lg px-2 py-1.5 cursor-pointer transition-colors">
+                              <Upload className="h-3 w-3" />
+                              {uploadingAttachment ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add .pptx reference"}
+                              <input
+                                type="file"
+                                accept=".pptx,.pdf,.docx"
+                                className="hidden"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  setUploadingAttachment(true);
+                                  try {
+                                    const key = await uploadFileToS3(file, "reference");
+                                    setReferenceFiles((prev) => [...prev, { file, key }]);
+                                  } catch { toast.error("Reference upload failed"); }
+                                  setUploadingAttachment(false);
+                                }}
+                              />
+                            </label>
+                          </div>
                         </div>
                       </motion.div>
                     )}
