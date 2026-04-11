@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@slideforge/db";
-import { pptPythonAgentQueue } from "@slideforge/queue";
 import { generatePresentationSchema } from "@slideforge/shared";
 import { getRequiredSession } from "@/lib/auth";
 import { decrypt } from "@/lib/encryption";
@@ -180,9 +179,8 @@ export async function POST(
       chatImageKeys: parsed.data.chatImageKeys || [],
     };
 
-    // Enqueue directly to the Python agent queue
-    // The Python agent worker will, upon completion, enqueue the node-worker job
-    // with the actual generated slides
+    // Enqueue directly to the Python agent queue (dynamic import to avoid bundling ioredis in client)
+    const { pptPythonAgentQueue } = await import("@slideforge/queue");
     await pptPythonAgentQueue.add("ai-agent", pythonAgentData, {
       jobId: job.id,
     });

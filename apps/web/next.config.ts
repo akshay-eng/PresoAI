@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  transpilePackages: ["@slideforge/db", "@slideforge/queue", "@slideforge/shared"],
+  transpilePackages: ["@slideforge/db", "@slideforge/shared"],
   serverExternalPackages: ["pino", "bullmq", "ioredis"],
   webpack: (config, { isServer }) => {
     // The @kandiforge/pptx-renderer tries to import 'canvas' (Node.js only)
