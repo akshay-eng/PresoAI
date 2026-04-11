@@ -522,40 +522,100 @@ async def outline_review(state: PPTGenerationState) -> dict:
 PPTXGENJS_API_REFERENCE = """
 ## pptxgenjs API Reference (for code generation)
 
-Layout: LAYOUT_WIDE = 13.33" x 7.5". Colors are 6-char hex WITHOUT # prefix.
+### Slide Dimensions (CRITICAL — memorize these)
+Layout: LAYOUT_WIDE = 13.33" wide x 7.5" tall.
+Safe margins: x starts at 0.5, ends at 12.83. y starts at 0.4, ends at 7.1.
+Usable content area: 12.33" wide x 6.7" tall.
 
-### Shapes
-slide.addShape(pres.shapes.RECTANGLE, { x, y, w, h, fill: { color: "HEX" }, line: { color, width } });
-slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h, fill: { color }, rectRadius: 0.1 });
-slide.addShape(pres.shapes.OVAL, { x, y, w, h, fill: { color } });
-slide.addShape(pres.shapes.LINE, { x, y, w, h: 0, line: { color, width } });
-Shadow: { shadow: { type: "outer", color: "000000", blur: 6, offset: 2, angle: 135, opacity: 0.15 } }
+### LAYOUT GRID SYSTEM (MUST FOLLOW)
+Before writing ANY code, plan your layout on this grid:
+
+**Header zone**: y: 0.3-1.2 (section label + title)
+**Content zone**: y: 1.3-5.8 (main content — cards, text, images)
+**Footer zone**: y: 6.0-7.2 (stats bar, page numbers, footer)
+
+**Column widths** (with 0.3" gaps between columns):
+- 1 column: x: 0.5, w: 12.33
+- 2 columns: x: 0.5 w: 6.0, x: 6.8 w: 6.0
+- 3 columns: x: 0.5 w: 3.9, x: 4.7 w: 3.9, x: 8.9 w: 3.9
+- 4 columns: x: 0.5 w: 2.85, x: 3.6 w: 2.85, x: 6.7 w: 2.85, x: 9.8 w: 2.85
+
+### OVERLAP PREVENTION (CRITICAL)
+- Before placing ANY element, mentally check: does this x,y,w,h overlap with anything already placed?
+- Text INSIDE a shape/card: x must be >= card.x, y must be >= card.y, x+w must be <= card.x+card.w
+- Logo next to text: if logo is at x:1, w:0.8, then text starts at x:1.9 (logo.x + logo.w + 0.1 gap)
+- Cards in a row: card2.x must be >= card1.x + card1.w + gap (usually 0.3" gap)
+- NEVER place text at the same x,y as a shape unless the text is meant to be INSIDE the shape
+
+### API Methods
+
+**Shapes:**
+slide.addShape(pres.shapes.RECTANGLE, { x, y, w, h, fill: { color: "HEX" }, line: { color, width }, rectRadius: 0.1 });
+Available: RECTANGLE, ROUNDED_RECTANGLE, OVAL, LINE, TRIANGLE, RIGHT_TRIANGLE, TRAPEZOID, DIAMOND, STAR_5
+Shadow: { shadow: { type: "outer", color: "000000", blur: 4, offset: 2, opacity: 0.15 } }
 Transparency: fill: { color: "HEX", transparency: 50 }
 
-### Text
-slide.addText("text", { x, y, w, h, fontSize, fontFace, color, bold, italic, align, valign, margin: 0 });
-slide.addText([{ text: "line1", options: { bold: true, breakLine: true } }, ...], { x, y, w, h });
+**Text:**
+slide.addText("text", { x, y, w, h, fontSize, fontFace, color, bold, italic, align, valign, margin: [top,right,bottom,left] });
+slide.addText([{ text: "line1", options: { bold: true, fontSize: 14, color: "333333", breakLine: true } }, ...], { x, y, w, h });
 Bullets: { bullet: true, breakLine: true }
-Numbered: { bullet: { type: "number" }, breakLine: true }
-charSpacing for letter-spacing. Use margin:0 to align with shapes.
 
-### Background
+**Background:**
 slide.background = { color: "HEX" };
 
-### Tables
-slide.addTable([["H1","H2"],["C1","C2"]], { x, y, w, border: { pt:1, color }, fill: { color } });
-Cell options: { text, options: { fill: { color }, color, bold, colspan } }
+**Images:**
+slide.addImage({ path: "https://url.com/image.png", x, y, w, h });
+For logos: ALWAYS place on a light background card, minimum w: 0.8
 
-### Charts
-slide.addChart(pres.charts.BAR, [{ name, labels, values }], { x, y, w, h, chartColors: [...], showValue, barDir: "col" });
-Types: BAR, LINE, PIE, DOUGHNUT. catGridLine: { style: "none" } to hide.
+**Tables:**
+slide.addTable(rows, { x, y, w, autoPage: false, border: { pt: 1, color: "CCCCCC" } });
+Row format: [{ text: "Header", options: { fill: { color: "1A1A2E" }, color: "FFFFFF", bold: true, fontSize: 12, align: "center" } }, ...]
+Data rows: [{ text: "Value", options: { fill: { color: "F5F5F5" }, color: "333333", fontSize: 11 } }]
+
+**Charts:**
+slide.addChart(pres.charts.BAR, [{ name: "Series", labels: [...], values: [...] }], { x, y, w, h, chartColors: ["HEX1"], showValue: true });
+Types: BAR, LINE, PIE, DOUGHNUT. barDir: "col" for vertical bars.
+
+### TESTED LAYOUT RECIPES (use these as starting points)
+
+**Recipe: 3-Card Row**
+```
+// Card 1
+slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.5, w: 3.9, h: 4.0, fill: { color: "FFFFFF" }, shadow: { type: "outer", blur: 4, offset: 2, color: "000000", opacity: 0.1 }, rectRadius: 0.1 });
+// Card 1 colored top bar
+slide.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 1.5, w: 3.9, h: 0.15, fill: { color: "0F3460" } });
+// Card 1 title (INSIDE the card)
+slide.addText("Title", { x: 0.7, y: 1.85, w: 3.5, h: 0.5, fontSize: 16, bold: true, color: "1A1A2E" });
+// Card 1 body (INSIDE the card, below title)
+slide.addText("Description text here", { x: 0.7, y: 2.4, w: 3.5, h: 2.8, fontSize: 12, color: "555555", valign: "top" });
+// Repeat for Card 2 at x: 4.7 and Card 3 at x: 8.9
+```
+
+**Recipe: Stats Footer Bar**
+```
+slide.addShape(pres.shapes.RECTANGLE, { x: 0, y: 6.0, w: 13.33, h: 1.5, fill: { color: "1A1A2E" } });
+// 4 stats evenly spaced
+slide.addText("42%", { x: 0.5, y: 6.1, w: 3.0, h: 0.7, fontSize: 36, bold: true, color: "00B4D8", align: "center" });
+slide.addText("Metric Label", { x: 0.5, y: 6.8, w: 3.0, h: 0.4, fontSize: 10, color: "AAAAAA", align: "center" });
+// Repeat at x: 3.5, 6.5, 9.5
+```
+
+**Recipe: Logo + Brand Name Card**
+```
+slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 1.0, y: 2.0, w: 1.8, h: 2.2, fill: { color: "F8F8F8" }, shadow: { type: "outer", blur: 3, offset: 1, color: "000000", opacity: 0.1 }, rectRadius: 0.1 });
+slide.addImage({ path: "LOGO_URL", x: 1.3, y: 2.2, w: 1.2, h: 1.0 });
+slide.addText("Brand Name", { x: 1.0, y: 3.3, w: 1.8, h: 0.5, fontSize: 11, bold: true, color: "333333", align: "center" });
+```
 
 ### CRITICAL RULES
-- NEVER use "#" in hex colors — causes corruption
-- NEVER reuse option objects — create fresh each time
-- NEVER use negative shadow offset
+- NEVER use "#" in hex colors — causes PPTX corruption
+- NEVER reuse option objects — create fresh {} for each call
+- NEVER place elements outside 0-13.33 (x) or 0-7.5 (y)
+- ALWAYS verify text is INSIDE its parent card by checking coordinates
+- ALWAYS leave 0.2-0.3" padding inside cards for text
 - Use breakLine:true between text array items
-- Don't use ROUNDED_RECTANGLE with accent overlay bars
+- Keep font sizes consistent: titles 24-32, subtitles 16-18, body 11-14, labels 9-11
+- Maximum 5-6 visual elements per slide — don't overcrowd
 """
 
 
@@ -731,7 +791,20 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         f"Research context:\n{summary[:2000]}\n\n"
         "IMPORTANT: Make these slides look like they came from a premium design agency. "
         "Use colored backgrounds, card layouts, accent bars, stat callouts, and visual hierarchy. "
-        "Every slide must have shapes and color — NO plain text on white background. "
+        "Every slide must have shapes and color — NO plain text on white background.\n\n"
+        "## BEFORE YOU WRITE EACH SLIDE:\n"
+        "1. PLAN the layout first: how many columns? What goes where?\n"
+        "2. Use the GRID SYSTEM from the API reference (0.5/4.7/8.9 for 3-col, etc.)\n"
+        "3. Calculate EXACT x,y,w,h for every element BEFORE writing code\n"
+        "4. CHECK: does any text overlap a shape? Does any card overlap another card?\n"
+        "5. Logos must be INSIDE their container cards, not floating over other content\n"
+        "6. Text inside a card must have x >= card.x+0.2 and x+w <= card.x+card.w-0.2\n\n"
+        "## COMMON MISTAKES TO AVOID:\n"
+        "- Placing a logo at x:2 when text at x:1.5 w:3 already covers that area\n"
+        "- Cards that are too wide and overlap the next column\n"
+        "- Text extending beyond slide boundaries (x+w > 13.33 or y+h > 7.5)\n"
+        "- Placing 6+ items in a row — max 4 items per row, use multiple rows instead\n"
+        "- Font sizes too large for the container (if card is h:2, don't use fontSize:36 with 5 lines)\n\n"
         "Output the JSON array."
     )
 
