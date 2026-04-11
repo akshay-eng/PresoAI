@@ -193,7 +193,7 @@ export async function processNodeWorkerJob(
     });
 
     await prisma.job.updateMany({
-      where: { id: jobId },
+      where: { OR: [{ id: jobId }, { bullmqJobId: jobId }] },
       data: {
         status: "COMPLETED", progress: 1.0, currentPhase: "complete",
         output: { s3Key, thumbnails, slideCount: slides.length, presentationId: presentation.id },

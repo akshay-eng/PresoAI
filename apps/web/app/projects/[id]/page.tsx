@@ -318,10 +318,13 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoGenerateHandled, selectedModelId, submittedPrompt]);
 
-  // SSE
+  // SSE with reconnection + poll fallback
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (jobId && isGenerating) {
+    if (!jobId || !isGenerating) return;
+
+    function connect() {
       if (eventSourceRef.current) eventSourceRef.current.close();
       const es = new EventSource(`/api/jobs/${jobId}/progress`);
       eventSourceRef.current = es;
@@ -331,9 +334,39 @@ export default function ProjectPage({ params }: ProjectPageProps) {
           updateProgress(data.phase, data.progress, data.message, data.data);
         } catch { /* ignore */ }
       };
-      es.onerror = () => { es.close(); eventSourceRef.current = null; };
+      es.onerror = () => {
+        es.close();
+        eventSourceRef.current = null;
+        // Reconnect after 3s if still generating
+        reconnectTimer.current = setTimeout(() => {
+          if (isGenerating) connect();
+        }, 3000);
+      };
     }
-    return () => { eventSourceRef.current?.close(); };
+
+    connect();
+
+    // Poll fallback every 10s in case SSE misses the completion
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/jobs/${jobId}`);
+        if (!res.ok) return;
+        const job = await res.json() as { status?: string; output?: Record<string, unknown>; error?: string };
+        if (job.status === "COMPLETED") {
+          updateProgress("complete", 1.0, "Presentation ready!", job.output);
+          clearInterval(pollInterval);
+        } else if (job.status === "FAILED") {
+          updateProgress("failed", 1.0, job.error || "Generation failed");
+          clearInterval(pollInterval);
+        }
+      } catch { /* ignore */ }
+    }, 10000);
+
+    return () => {
+      eventSourceRef.current?.close();
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      clearInterval(pollInterval);
+    };
   }, [jobId, isGenerating, updateProgress]);
 
   useEffect(() => {
