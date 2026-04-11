@@ -24,8 +24,51 @@ from app.services.extraction import ThemeExtractor, ReferenceExtractor
 from app.services.progress import ProgressPublisher
 from app.services.knowledge_graph import KnowledgeGraphService
 from app.services.logo_dev import extract_brand_mentions, resolve_brand_logos
+from app.services.kroki import get_kroki_url
 
 logger = structlog.get_logger()
+
+
+async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[dict]:
+    """Find KROKI_DIAGRAM markers in slide code and replace with image URLs."""
+    import re
+
+    pattern = re.compile(
+        r'//\s*KROKI_DIAGRAM:(\w+)\s*\n((?://.*\n)*?)//\s*END_KROKI_DIAGRAM',
+        re.MULTILINE,
+    )
+
+    for slide in slide_codes:
+        code = slide.get("code", "")
+        if "KROKI_DIAGRAM" not in code:
+            continue
+
+        matches = list(pattern.finditer(code))
+        for i, m in enumerate(reversed(matches)):  # reverse to preserve offsets
+            diagram_type = m.group(1).strip()
+            raw_lines = m.group(2)
+            # Strip leading "// " from each line
+            source = "\n".join(
+                line.lstrip("/").strip() for line in raw_lines.split("\n") if line.strip()
+            )
+
+            if not source:
+                continue
+
+            # Generate direct Kroki URL (no upload needed)
+            url = get_kroki_url(diagram_type, source, "png")
+
+            # Replace the marker with addImage code
+            replacement = (
+                f'slide.addImage({{ path: "{url}", '
+                f'x: 0.5, y: 1.5, w: 12.33, h: 5.0 }});'
+            )
+            code = code[:m.start()] + replacement + code[m.end():]
+            logger.info("kroki_diagram_embedded", type=diagram_type, slide=slide.get("slide_number"))
+
+        slide["code"] = code
+
+    return slide_codes
 
 
 def _build_visual_context(state: PPTGenerationState) -> list[dict]:
@@ -635,9 +678,15 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     """
     publisher = _get_publisher(state)
     is_creative = state.get("creative_mode", False)
+    use_diagram_images = state.get("use_diagram_images", False)
     audience = state.get("audience_type", "general")
 
-    mode_label = "Creative Mode" if is_creative else "Standard Mode"
+    mode_parts = []
+    if is_creative:
+        mode_parts.append("Creative Mode")
+    if use_diagram_images:
+        mode_parts.append("Diagram Images")
+    mode_label = " + ".join(mode_parts) if mode_parts else "Standard Mode"
     await publisher.publish(
         "writing_slides", 0.7,
         f"Designing slides with {mode_label} for {audience} audience..."
@@ -700,12 +749,84 @@ async def slide_writer(state: PPTGenerationState) -> dict:
             f"Available (use only when appropriate):\n{logos_lines}\n"
         )
 
+    # Diagram section — Kroki (image-based) or shape-based recipes
+    diagram_section = ""
+    if use_diagram_images:
+        diagram_section = (
+            "\n\n## DIAGRAM IMAGES MODE (Kroki — ENABLED)\n"
+            "For complex diagrams (sequence diagrams, architecture, ER, flowcharts), you can embed "
+            "rendered diagram images using Kroki URLs.\n\n"
+            "### How to use:\n"
+            "Write the diagram in Mermaid/PlantUML/D2 syntax, then use this URL pattern:\n"
+            "```\n"
+            "// To embed a Mermaid diagram as an image:\n"
+            "// 1. Write your Mermaid source\n"
+            "// 2. Use the kroki.io URL with base64-encoded source\n"
+            "slide.addImage({ path: 'https://kroki.io/mermaid/png/' + btoa(DIAGRAM_SOURCE), x: 1, y: 1.5, w: 11, h: 5 });\n"
+            "```\n\n"
+            "IMPORTANT: Since btoa() may not be available in the sandbox, instead write the diagram "
+            "source as a COMMENT in the code with this exact format:\n"
+            "```\n"
+            "// KROKI_DIAGRAM:mermaid\n"
+            "// graph TD\n"
+            "//   A[Start] --> B{Decision}\n"
+            "//   B -->|Yes| C[Action]\n"
+            "//   B -->|No| D[End]\n"
+            "// END_KROKI_DIAGRAM\n"
+            "// The image will be placed at: x:0.5, y:1.5, w:12, h:5\n"
+            "```\n"
+            "The system will automatically render this and embed the image.\n\n"
+            "### Supported types: mermaid, plantuml, d2, graphviz, blockdiag, seqdiag, erd\n\n"
+            "### When to use Kroki vs shapes:\n"
+            "- Use Kroki for: sequence diagrams, complex flowcharts with many nodes, ER diagrams, "
+            "network diagrams, Gantt charts\n"
+            "- Use native shapes for: simple 3-5 step flows, card layouts, stat callouts, comparisons\n"
+        )
+    else:
+        diagram_section = (
+            "\n\n## DIAGRAM RECIPES (shape-based — fully editable in PowerPoint)\n"
+            "Build these diagrams using native pptxgenjs shapes. They are fully editable.\n\n"
+            "### Sequence Diagram (2-3 actors)\n"
+            "```\n"
+            "// Actor boxes at top\n"
+            "slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 1, y: 0.8, w: 2, h: 0.6, fill: { color: '0F3460' } });\n"
+            "slide.addText('Service A', { x: 1, y: 0.8, w: 2, h: 0.6, color: 'FFFFFF', fontSize: 12, bold: true, align: 'center', valign: 'middle' });\n"
+            "// Vertical lifeline\n"
+            "slide.addShape(pres.shapes.LINE, { x: 2, y: 1.4, w: 0, h: 4, line: { color: 'CCCCCC', width: 1, dashType: 'dash' } });\n"
+            "// Horizontal arrow (message)\n"
+            "slide.addShape(pres.shapes.LINE, { x: 2, y: 2.0, w: 4, h: 0, line: { color: '0F3460', width: 2 } });\n"
+            "slide.addText('POST /api', { x: 2.5, y: 1.6, w: 3, h: 0.3, fontSize: 10, color: '0F3460' });\n"
+            "```\n\n"
+            "### Architecture Diagram (hub & spoke)\n"
+            "```\n"
+            "// Central hub\n"
+            "slide.addShape(pres.shapes.OVAL, { x: 5.5, y: 2.5, w: 2.5, h: 2.5, fill: { color: '0F3460' } });\n"
+            "slide.addText('Core\\nService', { x: 5.5, y: 2.5, w: 2.5, h: 2.5, color: 'FFFFFF', fontSize: 14, bold: true, align: 'center', valign: 'middle' });\n"
+            "// Spoke nodes (repeat at 45° intervals)\n"
+            "slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 1, y: 1, w: 2.2, h: 1.2, fill: { color: 'E8F4FD' }, rectRadius: 0.1 });\n"
+            "slide.addText('Database', { x: 1, y: 1, w: 2.2, h: 1.2, fontSize: 11, bold: true, align: 'center', valign: 'middle', color: '0F3460' });\n"
+            "// Connector line from spoke to hub\n"
+            "slide.addShape(pres.shapes.LINE, { x: 3.2, y: 1.6, w: 2.3, h: 0.9, line: { color: '00B4D8', width: 2 } });\n"
+            "```\n\n"
+            "### Gantt / Timeline\n"
+            "```\n"
+            "// Horizontal time axis\n"
+            "slide.addShape(pres.shapes.LINE, { x: 0.5, y: 4, w: 12, h: 0, line: { color: '333333', width: 2 } });\n"
+            "// Phase bars (stacked horizontal rectangles at different y positions)\n"
+            "slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 2.0, w: 4, h: 0.6, fill: { color: '0F3460' }, rectRadius: 0.05 });\n"
+            "slide.addText('Phase 1: Discovery', { x: 0.5, y: 2.0, w: 4, h: 0.6, color: 'FFFFFF', fontSize: 10, align: 'center', valign: 'middle' });\n"
+            "slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 3.5, y: 2.8, w: 5, h: 0.6, fill: { color: '00B4D8' }, rectRadius: 0.05 });\n"
+            "slide.addText('Phase 2: Build', { x: 3.5, y: 2.8, w: 5, h: 0.6, color: 'FFFFFF', fontSize: 10, align: 'center', valign: 'middle' });\n"
+            "```\n"
+        )
+
     messages = [
         SystemMessage(content=(
             "You are a world-class presentation designer at a top design agency. "
             "You create CATALOGUE-QUALITY presentation slides — the kind that win design awards. "
             "You write pptxgenjs JavaScript code that produces polished, professional, visually rich slides.\n\n"
             f"{PPTXGENJS_API_REFERENCE}\n"
+            f"{diagram_section}"
             f"{style_section}"
             f"{kg_section}"
             f"{logos_section}\n"
@@ -865,6 +986,10 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     if not slide_codes:
         logger.error("slide_writer_no_slides_parsed", raw_length=len(raw_content), raw_sample=raw_content[:500] if raw_content else "EMPTY")
         raise Exception(f"Failed to parse slide code from LLM response (length={len(raw_content)})")
+
+    # Post-process: replace KROKI_DIAGRAM markers with rendered image URLs
+    if use_diagram_images:
+        slide_codes = await _process_kroki_diagrams(slide_codes, state.get("job_id", ""))
 
     await publisher.publish("writing_slides", 0.85, f"Designed {len(slide_codes)} slides with full visual control")
     await publisher.close()

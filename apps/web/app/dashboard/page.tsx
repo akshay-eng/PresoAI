@@ -35,6 +35,7 @@ export default function DashboardPage() {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
+  const [useDiagramImages, setUseDiagramImages] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const [showCreateStyle, setShowCreateStyle] = useState(false);
   const [showStyleDetail, setShowStyleDetail] = useState<string | null>(null);
@@ -162,6 +163,7 @@ export default function DashboardPage() {
         numSlides: String(numSlides),
         audienceType,
         ...(creativeMode ? { creativeMode: "1" } : {}),
+        ...(useDiagramImages ? { useDiagramImages: "1" } : {}),
       });
       router.push(`/projects/${p.id}?${params.toString()}`);
     },
@@ -602,6 +604,19 @@ export default function DashboardPage() {
                   >
                     <Sparkles className="h-2.5 w-2.5" />
                     Creative
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUseDiagramImages(!useDiagramImages)}
+                    className={`text-[10px] rounded-md px-1.5 py-0.5 transition-colors flex items-center gap-0.5 ${
+                      useDiagramImages
+                        ? "bg-violet-500/15 text-violet-500 ring-1 ring-violet-500/30"
+                        : "bg-secondary text-muted-foreground hover:text-foreground"
+                    }`}
+                    title="Diagram Images: renders complex diagrams (sequence, architecture, ER) as high-quality images via Kroki"
+                  >
+                    <BarChart3 className="h-2.5 w-2.5" />
+                    Diagrams
                   </button>
                 </div>
 

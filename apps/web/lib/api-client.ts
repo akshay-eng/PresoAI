@@ -72,6 +72,7 @@ export const api = {
     modelId: string;
     engine?: "claude-code" | "claude-gemini" | "node-worker";
     creativeMode?: boolean;
+    useDiagramImages?: boolean;
     chatImageKeys?: string[];
   }) =>
     fetchApi<{ jobId: string }>(

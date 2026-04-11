@@ -26,6 +26,7 @@ import {
   Paperclip,
   Eye,
   PenTool,
+  BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,6 +147,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
+  const [useDiagramImages, setUseDiagramImages] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -233,6 +235,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       if (urlNumSlides) setNumSlides(parseInt(urlNumSlides, 10));
       const urlAudience = searchParams.get("audienceType");
       if (urlAudience) setAudienceType(urlAudience);
+      if (searchParams.get("useDiagramImages") === "1") setUseDiagramImages(true);
 
       // Auto-generate if coming from dashboard
       if (shouldAutoGenerate && p.prompt && modelFromUrl && !autoGenerateHandled) {
@@ -288,6 +291,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         modelId: selectedModelId,
         engine,
         creativeMode,
+        useDiagramImages,
         chatImageKeys: chatMessages
           .filter((m) => m.metadata?.imageKeys)
           .flatMap((m) => (m.metadata!.imageKeys as string[]) || []),
@@ -1031,6 +1035,19 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                       >
                         <Sparkles className="h-3 w-3" />
                         Creative
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUseDiagramImages(!useDiagramImages)}
+                        className={`h-7 rounded-md px-2 text-[11px] transition-colors flex items-center gap-1 ${
+                          useDiagramImages
+                            ? "bg-violet-500/15 text-violet-500 ring-1 ring-violet-500/30"
+                            : "border border-border bg-secondary/50 text-muted-foreground hover:text-foreground"
+                        }`}
+                        title="Diagram Images: renders complex diagrams via Kroki as high-quality images"
+                      >
+                        <BarChart3 className="h-3 w-3" />
+                        Diagrams
                       </button>
                     </div>
                     <button

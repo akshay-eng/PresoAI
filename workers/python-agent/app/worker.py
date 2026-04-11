@@ -48,6 +48,7 @@ async def process_python_agent_job(job: Any, token: str | None = None) -> dict:
             "visual_style": job_data.get("visualStyle", {}),
             "layout_patterns": job_data.get("layoutPatterns", []),
             "creative_mode": job_data.get("creativeMode", False),
+            "use_diagram_images": job_data.get("useDiagramImages", False),
             "chat_image_keys": job_data.get("chatImageKeys", []),
             "reference_visual_parts": [],
         }

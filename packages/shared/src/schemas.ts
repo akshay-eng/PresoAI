@@ -25,6 +25,7 @@ export const generatePresentationSchema = z.object({
   modelId: z.string().min(1),
   engine: z.enum(["claude-code", "claude-gemini", "node-worker"]).default("claude-code"),
   creativeMode: z.boolean().default(false),
+  useDiagramImages: z.boolean().default(false),
   chatImageKeys: z.array(z.string()).optional(),
 });
 
