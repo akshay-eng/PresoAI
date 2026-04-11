@@ -165,6 +165,12 @@ export default function DashboardPage() {
         ...(creativeMode ? { creativeMode: "1" } : {}),
         ...(useDiagramImages ? { useDiagramImages: "1" } : {}),
       });
+      // Clear form state before navigating so returning to dashboard is fresh
+      setQuickPrompt("");
+      setPastedImages([]);
+      setTemplateFile(null);
+      setReferenceFiles([]);
+
       router.push(`/projects/${p.id}?${params.toString()}`);
     },
     onError: (err: Error) => toast.error(err.message),
