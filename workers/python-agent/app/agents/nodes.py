@@ -24,13 +24,14 @@ from app.services.extraction import ThemeExtractor, ReferenceExtractor
 from app.services.progress import ProgressPublisher
 from app.services.knowledge_graph import KnowledgeGraphService
 from app.services.logo_dev import extract_brand_mentions, resolve_brand_logos
-from app.services.kroki import get_kroki_url
+from app.services.kroki import render_diagram
+from app.services.s3 import S3Service
 
 logger = structlog.get_logger()
 
 
 async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[dict]:
-    """Find KROKI_DIAGRAM markers in slide code and replace with image URLs."""
+    """Find KROKI_DIAGRAM markers in slide code, render via Kroki, upload to S3, replace with image URL."""
     import re
 
     pattern = re.compile(
@@ -38,16 +39,18 @@ async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[
         re.MULTILINE,
     )
 
+    s3 = S3Service()
+    diagram_idx = 0
+
     for slide in slide_codes:
         code = slide.get("code", "")
         if "KROKI_DIAGRAM" not in code:
             continue
 
         matches = list(pattern.finditer(code))
-        for i, m in enumerate(reversed(matches)):  # reverse to preserve offsets
+        for m in reversed(matches):  # reverse to preserve offsets
             diagram_type = m.group(1).strip()
             raw_lines = m.group(2)
-            # Strip leading "// " from each line
             source = "\n".join(
                 line.lstrip("/").strip() for line in raw_lines.split("\n") if line.strip()
             )
@@ -55,17 +58,36 @@ async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[
             if not source:
                 continue
 
-            # Generate direct Kroki URL — use SVG for better quality
-            url = get_kroki_url(diagram_type, source, "svg")
+            # Render via Kroki API (PNG for pptxgenjs compatibility)
+            image_bytes = await render_diagram(diagram_type, source, "png")
+            if not image_bytes:
+                logger.error("kroki_render_failed", type=diagram_type, slide=slide.get("slide_number"))
+                # Remove the marker, leave a placeholder text
+                replacement = (
+                    'slide.addText("[ Diagram could not be rendered ]", '
+                    '{ x: 1, y: 3, w: 11, h: 1, fontSize: 14, color: "999999", align: "center" });'
+                )
+                code = code[:m.start()] + replacement + code[m.end():]
+                continue
 
-            # Replace the marker with addImage code — use content zone only
-            # Leave space for title (y:0-1.3) and optional caption below
+            # Upload to S3
+            s3_key = f"diagrams/{job_id}/diagram_{diagram_idx}.png"
+            diagram_idx += 1
+            try:
+                s3.upload_bytes(image_bytes, s3_key, content_type="image/png")
+                url = s3.generate_presigned_url(s3_key, expires_in=86400)
+                logger.info("kroki_diagram_uploaded", key=s3_key, size=len(image_bytes), slide=slide.get("slide_number"))
+            except Exception as e:
+                logger.error("kroki_s3_upload_failed", error=str(e))
+                code = code[:m.start()] + "" + code[m.end():]
+                continue
+
+            # Replace marker with addImage using the S3 presigned URL
             replacement = (
                 f'slide.addImage({{ path: "{url}", '
                 f'x: 1.0, y: 1.5, w: 11.33, h: 4.5 }});'
             )
             code = code[:m.start()] + replacement + code[m.end():]
-            logger.info("kroki_diagram_embedded", type=diagram_type, slide=slide.get("slide_number"))
 
         slide["code"] = code
 
