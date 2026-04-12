@@ -25,6 +25,7 @@ from app.services.progress import ProgressPublisher
 from app.services.knowledge_graph import KnowledgeGraphService
 from app.services.logo_dev import extract_brand_mentions, resolve_brand_logos
 from app.services.kroki import render_diagram
+from app.services.kroki_skill import KROKI_SKILL_REFERENCE
 from app.services.s3 import S3Service
 
 logger = structlog.get_logger()
@@ -732,74 +733,10 @@ async def slide_writer(state: PPTGenerationState) -> dict:
             f"Available (use only when appropriate):\n{logos_lines}\n"
         )
 
-    # Diagram section — Kroki (image-based) or shape-based recipes
+    # Diagram section — inject Kroki skill when enabled
     diagram_section = ""
     if use_diagram_images:
-        diagram_section = (
-            "\n\n## DIAGRAM MODE: KROKI (MANDATORY)\n"
-            "You MUST use Kroki diagrams to visualize concepts. Think creatively about WHAT diagram type "
-            "best represents each idea — don't just default to flowcharts.\n\n"
-
-            "### FORMAT:\n"
-            "```javascript\n"
-            "slide.background = { color: 'FFFFFF' };\n"
-            "slide.addText('SECTION', { x: 0.5, y: 0.3, w: 5, h: 0.3, fontSize: 10, bold: true, color: '00B4D8', charSpacing: 2 });\n"
-            "slide.addText('Title Here', { x: 0.5, y: 0.6, w: 10, h: 0.6, fontSize: 28, bold: true, color: '1A1A2E' });\n"
-            "// KROKI_DIAGRAM:mermaid\n"
-            "// graph TD\n"
-            "//     A[Start] --> B[Process]\n"
-            "//     B --> C[End]\n"
-            "// END_KROKI_DIAGRAM\n"
-            "slide.addText('Figure caption', { x: 0.5, y: 6.5, w: 12, h: 0.3, fontSize: 9, italic: true, color: '999999' });\n"
-            "```\n\n"
-
-            "### DIAGRAM TYPE SELECTION GUIDE — pick the BEST type for each concept:\n\n"
-
-            "**Mermaid** (most versatile — use for most diagrams):\n"
-            "- `graph TD` / `graph LR` — architecture, system flows, decision trees\n"
-            "- `sequenceDiagram` — API calls, request/response flows, interactions between services\n"
-            "- `gantt` — project timelines, migration phases, roadmaps\n"
-            "- `pie` — market share, budget allocation, distribution breakdowns\n"
-            "- `mindmap` — topic exploration, brainstorming, concept relationships\n"
-            "- `timeline` — historical events, milestones, evolution of a technology\n"
-            "- `quadrantChart` — strategic positioning, risk vs impact, priority matrices\n"
-            "- `journey` — user journey maps, customer experience flows\n"
-            "- `gitgraph` — branching strategies, CI/CD pipeline flows\n"
-            "- `classDiagram` — data models, entity relationships, system design\n"
-            "- `stateDiagram-v2` — lifecycle states, workflow statuses, state machines\n"
-            "- `erDiagram` — database schemas, entity relationships\n"
-            "- `xychart-beta` — bar charts, line charts with axes\n\n"
-
-            "**PlantUML** (for detailed UML):\n"
-            "- `@startuml ... @enduml` — sequence, component, activity, use case diagrams\n"
-            "- Best for: detailed multi-actor sequences, component architectures\n\n"
-
-            "**BlockDiag** (for block/network diagrams):\n"
-            "- Clean block diagrams with groups and connectors\n"
-            "- `nwdiag` — network topology diagrams\n"
-            "- `actdiag` — activity diagrams with lanes\n\n"
-
-            "### THINK BEFORE CHOOSING:\n"
-            "- Timeline/roadmap? → `mermaid gantt` or `mermaid timeline`\n"
-            "- How things connect? → `mermaid graph TD`\n"
-            "- API call sequence? → `mermaid sequenceDiagram`\n"
-            "- Data model? → `mermaid erDiagram`\n"
-            "- Strategic positioning? → `mermaid quadrantChart`\n"
-            "- User experience? → `mermaid journey`\n"
-            "- Distribution/breakdown? → `mermaid pie`\n"
-            "- Concept exploration? → `mermaid mindmap`\n"
-            "- Project phases? → `mermaid gantt`\n"
-            "- State transitions? → `mermaid stateDiagram-v2`\n"
-            "- Metrics with axes? → `mermaid xychart-beta`\n\n"
-
-            "### RULES:\n"
-            "- Use AT LEAST one Kroki diagram per 2 slides in the deck\n"
-            "- VARY the diagram types — don't use flowcharts for everything\n"
-            "- Diagram slides: title + diagram + caption ONLY (no overlapping shapes)\n"
-            "- You CAN combine: left side = diagram, right side = key stats/text (2-col layout)\n"
-            "- Every line of diagram source MUST start with `// ` (two slashes + space)\n"
-            "- Keep diagram source under 25 lines\n"
-        )
+        diagram_section = KROKI_SKILL_REFERENCE
     else:
         diagram_section = (
             "\n\n## DIAGRAM RECIPES (shape-based — fully editable in PowerPoint)\n"
@@ -888,11 +825,10 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         "then write clean pptxgenjs code using the grid coordinates from the API reference. "
         "Include specific data from the research — real numbers, tool names, metrics.\n"
         + (
-            "\nDIAGRAM MODE IS ON. You MUST use // KROKI_DIAGRAM markers to visualize concepts. "
-            "Use at least one diagram per 2 slides. VARY the types — use mindmap, timeline, gantt, "
-            "pie, journey, quadrantChart, sequenceDiagram, erDiagram, stateDiagram-v2, xychart-beta — "
-            "NOT just flowcharts. Think: what is the most INSIGHTFUL way to visualize THIS concept? "
-            "Do NOT draw diagrams manually with addShape.\n"
+            "\nDiagram Mode is ON. For slides where a visual diagram adds clarity (architecture, "
+            "flows, timelines, relationships), use // KROKI_DIAGRAM markers instead of addShape. "
+            "NOT every slide needs a diagram — use tables, charts, and cards for data/stats/comparisons. "
+            "Content quality matters most.\n"
             if use_diagram_images else ""
         )
         + "Output ONLY the JSON array."
