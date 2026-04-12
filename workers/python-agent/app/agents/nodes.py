@@ -55,13 +55,14 @@ async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[
             if not source:
                 continue
 
-            # Generate direct Kroki URL (no upload needed)
-            url = get_kroki_url(diagram_type, source, "png")
+            # Generate direct Kroki URL — use SVG for better quality
+            url = get_kroki_url(diagram_type, source, "svg")
 
-            # Replace the marker with addImage code
+            # Replace the marker with addImage code — use content zone only
+            # Leave space for title (y:0-1.3) and optional caption below
             replacement = (
                 f'slide.addImage({{ path: "{url}", '
-                f'x: 0.5, y: 1.3, w: 12.33, h: 5.0 }});'
+                f'x: 1.0, y: 1.5, w: 11.33, h: 4.5 }});'
             )
             code = code[:m.start()] + replacement + code[m.end():]
             logger.info("kroki_diagram_embedded", type=diagram_type, slide=slide.get("slide_number"))
@@ -160,7 +161,7 @@ def _get_publisher(state: PPTGenerationState) -> ProgressPublisher:
 
 
 class ResearchQueries(BaseModel):
-    queries: list[str] = Field(description="4-6 targeted research queries")
+    queries: list[str] = Field(description="6-8 targeted research queries")
 
 
 class OutlineOutput(BaseModel):
@@ -257,30 +258,60 @@ async def process_references(state: PPTGenerationState) -> dict:
 
 async def query_generator(state: PPTGenerationState) -> dict:
     publisher = _get_publisher(state)
-    await publisher.publish("researching", 0.25, "Generating research queries...")
+    await publisher.publish("researching", 0.2, "Enhancing prompt and generating research queries...")
 
     llm = _get_llm(state, temperature=0.3)
-    structured_llm = llm.with_structured_output(ResearchQueries)
 
-    prompt = state.get("user_prompt", "")
+    raw_prompt = state.get("user_prompt", "")
     audience = state.get("audience_type", "general")
     num_slides = state.get("num_slides", 10)
     ref_context = state.get("reference_context", "")
 
+    # Step 1: Enhance the user's prompt — add context, specificity, and structure
+    try:
+        enhance_result = await llm.ainvoke([
+            SystemMessage(content=(
+                "You are a presentation strategist. The user gave a rough prompt for a slide deck. "
+                "Your job is to ENHANCE it into a detailed, well-structured presentation brief. "
+                "Add: specific sub-topics to cover, what data/metrics would strengthen each point, "
+                "what visual formats would work best (tables, charts, diagrams, comparisons), "
+                "and what the key takeaway should be.\n"
+                "Return ONLY the enhanced prompt text (2-3 paragraphs). Do not add meta-commentary."
+            )),
+            HumanMessage(content=(
+                f"Original prompt: {raw_prompt}\n"
+                f"Audience: {audience}\n"
+                f"Number of slides: {num_slides}\n"
+                "Enhance this into a detailed presentation brief."
+            )),
+        ])
+        prompt = enhance_result.content if hasattr(enhance_result, "content") else raw_prompt
+        logger.info("prompt_enhanced", original_len=len(raw_prompt), enhanced_len=len(prompt))
+    except Exception as e:
+        logger.warning("prompt_enhancement_failed", error=str(e))
+        prompt = raw_prompt
+
+    await publisher.publish("researching", 0.25, "Generating research queries...")
+
+    # Step 2: Generate research queries from the enhanced prompt
+    structured_llm = llm.with_structured_output(ResearchQueries)
+
     messages = [
         SystemMessage(content=(
             "You are a research query generator for presentation creation. "
-            "Generate 4-6 targeted web search queries that will find relevant, "
+            "Generate 6-8 targeted web search queries that will find relevant, "
             "up-to-date information for the presentation topic. "
-            "Consider the audience type and focus on finding data, statistics, "
-            "examples, and expert insights."
+            "Include queries for: specific statistics/metrics, industry benchmarks, "
+            "case studies, expert opinions, comparison data, and recent trends. "
+            "Make queries SPECIFIC — not generic like 'microservices benefits' but "
+            "'microservices migration MTTR reduction statistics 2024 2025'."
         )),
         HumanMessage(content=(
-            f"Topic: {prompt}\n"
+            f"Enhanced topic brief:\n{prompt}\n\n"
             f"Audience: {audience}\n"
             f"Number of slides: {num_slides}\n"
             f"Reference context (if any): {ref_context[:2000]}\n\n"
-            "Generate 4-6 search queries."
+            "Generate 6-8 specific, data-focused search queries."
         )),
     ]
 
@@ -582,7 +613,7 @@ Before writing ANY code, plan your layout on this grid:
 
 **Header zone**: y: 0.3-1.2 (section label + title)
 **Content zone**: y: 1.3-5.8 (main content — cards, text, images)
-**Footer zone**: y: 6.0-7.2 (stats bar, page numbers, footer)
+**Footer zone** (OPTIONAL): y: 6.2-7.2 (page number, small caption — NOT mandatory)
 
 **Column widths** (with 0.3" gaps between columns):
 - 1 column: x: 0.5, w: 12.33
@@ -655,13 +686,13 @@ slide.addText("Description text here", { x: 0.7, y: 2.4, w: 3.5, h: 2.8, fontSiz
 // Repeat for Card 2 at x: 4.7 and Card 3 at x: 8.9
 ```
 
-**Recipe: Stats Footer Bar**
+**Recipe: Stat Callout Row (use INSIDE content zone, NOT as a footer)**
 ```
-slide.addShape(pres.shapes.RECTANGLE, { x: 0, y: 6.0, w: 13.33, h: 1.5, fill: { color: "1A1A2E" } });
-// 4 stats evenly spaced
-slide.addText("42%", { x: 0.5, y: 6.1, w: 3.0, h: 0.7, fontSize: 36, bold: true, color: "00B4D8", align: "center" });
-slide.addText("Metric Label", { x: 0.5, y: 6.8, w: 3.0, h: 0.4, fontSize: 10, color: "AAAAAA", align: "center" });
-// Repeat at x: 3.5, 6.5, 9.5
+// 3 stat cards in a row — place at y:4.5 or wherever they fit in content zone
+slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 4.5, w: 3.9, h: 1.5, fill: { color: "F0F4FF" }, rectRadius: 0.1 });
+slide.addText("42%", { x: 0.5, y: 4.6, w: 3.9, h: 0.8, fontSize: 32, bold: true, color: "0F3460", align: "center" });
+slide.addText("Alert noise reduction", { x: 0.5, y: 5.4, w: 3.9, h: 0.4, fontSize: 10, color: "666666", align: "center" });
+// Repeat at x: 4.7 and x: 8.9
 ```
 
 **Recipe: Logo + Brand Name Card**
@@ -733,19 +764,18 @@ async def slide_writer(state: PPTGenerationState) -> dict:
 
     outline_text = json.dumps(outline, indent=2)
 
-    kg_context = _get_knowledge_graph_context(state)
-
+    # Only use knowledge graph + style when a style profile was explicitly selected
     style_section = ""
+    kg_section = ""
     if style_guide:
         style_section = (
-            "\n\n## CRITICAL: Visual Style from Reference Deck\n"
-            "Match this style EXACTLY:\n"
+            "\n\n## Visual Style from Reference Deck (user selected a style profile)\n"
+            "Use this as INSPIRATION, not a rigid template:\n"
             f"{style_guide[:3000]}\n"
         )
-
-    kg_section = ""
-    if kg_context:
-        kg_section = f"\n\n## User's Design Preferences\n{kg_context[:1000]}"
+        kg_context = _get_knowledge_graph_context(state)
+        if kg_context:
+            kg_section = f"\n\n## User's Design Preferences\n{kg_context[:1000]}"
 
     # Brand logo enrichment via logo.dev — extract mentioned companies/tools
     # and fetch their logos so the LLM can place them on the slides.
@@ -896,36 +926,42 @@ async def slide_writer(state: PPTGenerationState) -> dict:
                 "- Test your x/y/w/h coordinates mentally: shapes must not overlap unintentionally.\n\n"
                 if is_creative else ""
             )
-            + "## CATALOGUE-QUALITY DESIGN PRINCIPLES\n"
-            "Think of each slide as a page in a premium corporate brochure. Follow these rules:\n\n"
-            "### Color Usage (CRITICAL)\n"
-            "- EVERY slide must use colors intentionally — not just black text on white.\n"
-            "- Use the color palette from the style profile. If no style profile, pick a bold palette.\n"
-            "- Background colors: Use dark/colored backgrounds for title and section slides. "
-            "Use white/light for content slides. This creates a 'sandwich' rhythm.\n"
-            "- Accent colors: Use for card headers, stat numbers, underlines, borders, and callout shapes.\n"
-            "- NEVER leave a slide as plain white with just text. Always add colored shapes or backgrounds.\n"
-            "- Footer bars: Add a full-width colored bar at the bottom of content slides for key metrics.\n\n"
-            "### Layout Structure (CRITICAL)\n"
-            "- Use CARD-BASED layouts: group information into 2, 3, or 4 rectangular card containers.\n"
-            "- Cards should have: colored top border or colored header bar, title inside, 2-4 lines of text.\n"
-            "- For comparison slides: use side-by-side cards with different accent colors.\n"
-            "- For process/flow slides: use numbered step cards arranged left-to-right with arrows between.\n"
-            "- For stats: use large numbers (48-60pt bold) inside colored cards with small labels below.\n"
-            "- NEVER just list bullet points on a blank slide. Structure content into visual containers.\n\n"
-            "### Visual Polish\n"
-            "- Add thin accent lines/bars (2-3px) as visual separators and emphasis.\n"
-            "- Use section labels above titles: ALL CAPS, small font (10pt), letter-spacing, accent color.\n"
-            "- Add slide numbers in bottom-right corner.\n"
-            "- Use consistent margins: 0.5-0.8 inches from edges.\n"
-            "- Text inside dark cards should be white/light. Text on light backgrounds should be dark.\n"
-            "- Headings: bold, large (28-36pt). Body: regular, smaller (13-16pt).\n\n"
-            "### What Makes a Slide Look Professional\n"
-            "- Visual weight balance: don't cram everything to one side.\n"
-            "- Consistent spacing between elements (use the same gap value).\n"
-            "- Color harmony: max 3-4 colors per slide, from the palette.\n"
-            "- White space is intentional — don't fill every inch.\n"
-            "- Every element (shape, text, line) must serve a purpose.\n\n"
+            + "## DESIGN PRINCIPLES — CONTENT-FIRST, DATA-RICH\n"
+            "Your #1 job is to present INFORMATION CLEARLY. Design serves content, not the other way around.\n\n"
+            "### Content Density (MOST IMPORTANT)\n"
+            "- Every slide MUST be INFORMATION-DENSE — use the research data from the outline.\n"
+            "- Include real numbers, percentages, comparisons, tool names — not generic placeholder text.\n"
+            "- A slide with just a title and 3 bullet points is LAZY. Think: how else can this be shown?\n"
+            "- For ANY data: use addTable() or addChart() — NEVER just write numbers as text.\n"
+            "- For ANY process: use shapes connected with arrows — NEVER just list steps as bullets.\n"
+            "- For ANY comparison: use a well-formatted table or side-by-side cards — NEVER just text.\n\n"
+            "### Charts (addChart) — USE WITH PROPER AXES\n"
+            "- BAR charts: catAxisTitle, valAxisTitle, showValue:true, catGridLine:{style:'none'}\n"
+            "- Always include axis labels so the reader knows what's being measured.\n"
+            "- Use chartColors array matching the number of data points.\n"
+            "- Charts should have REAL data from research, not made-up numbers.\n\n"
+            "### Color Palette (pick ONE and stick with it)\n"
+            "If no style profile: use this default professional palette:\n"
+            "- Dark: 1A1A2E (backgrounds, headings)\n"
+            "- Primary accent: 0F3460 (cards, headers)\n"
+            "- Secondary accent: 00B4D8 (highlights, stat numbers)\n"
+            "- Warm accent: E94560 (alerts, emphasis)\n"
+            "- Light bg: F8F9FA (card fills, table even rows)\n"
+            "- Text: 333333 (body), FFFFFF (on dark bg)\n"
+            "Use dark background ONLY for the title slide. Content slides: white/light background.\n\n"
+            "### Layout Rules\n"
+            "- Group related content into cards with thin colored top border (3px).\n"
+            "- Use 2-column or 3-column grid from the API reference.\n"
+            "- Section label above title: ALL CAPS, small font (10pt), accent color, charSpacing: 2.\n"
+            "- NO thick footer bars — they waste space. Put stats inline in the content area.\n"
+            "- Slide number bottom-right: fontSize 8, color 'AAAAAA'.\n"
+            "- Keep consistent 0.5\" margins on all sides.\n\n"
+            "### What NOT to do\n"
+            "- Do NOT use oversized shapes (full-width colored blocks) just to fill space.\n"
+            "- Do NOT add a dark footer bar on every slide.\n"
+            "- Do NOT use generic text like 'Key insights' with no actual insight.\n"
+            "- Do NOT leave large empty areas — fill with relevant content from research.\n"
+            "- Do NOT make circles/ovals as the primary layout — they waste space and look amateurish.\n\n"
             "## Output Format\n"
             "Output ONLY a valid JSON array. Each object:\n"
             "- \"slide_number\": number\n"
