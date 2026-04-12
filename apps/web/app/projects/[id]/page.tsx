@@ -185,6 +185,25 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     llmConfig?: { id: string };
   } | null;
 
+  // Load models list for auto-select
+  const { data: modelsData } = useQuery({
+    queryKey: ["llm-models"],
+    queryFn: () => api.listModels(),
+    enabled: !!session,
+  });
+  const modelList = (() => {
+    const d = modelsData as { models?: unknown[] } | unknown[] | undefined;
+    return (Array.isArray(d) ? d : (d?.models || [])) as Array<{ id: string; name: string; isDefault: boolean }>;
+  })();
+
+  // Auto-select default model if none is set
+  useEffect(() => {
+    if (!selectedModelId && modelList.length > 0) {
+      const def = modelList.find((m) => m.isDefault) || modelList[0];
+      if (def) setSelectedModelId(def.id);
+    }
+  }, [modelList, selectedModelId]);
+
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     if (p && !initialized) {
@@ -240,11 +259,18 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       // Auto-generate if coming from dashboard
       if (shouldAutoGenerate && p.prompt && modelFromUrl && !autoGenerateHandled) {
         setSelectedModelId(modelFromUrl);
+        // Persist model to project so it survives page reloads and follow-ups
+        api.updateProject(id, { llmConfigId: modelFromUrl }).catch(() => {});
         const engineFromUrl = searchParams.get("engine") as typeof engine | null;
         if (engineFromUrl) setEngine(engineFromUrl);
         setAutoGenerateHandled(true);
         setPrompt("");
         router.replace(`/projects/${id}`, { scroll: false });
+      }
+
+      // If no model selected yet, pick from URL or default
+      if (!selectedModelId && !modelFromUrl && !p.llmConfig) {
+        // Will be picked up by the auto-select effect below
       }
 
       setInitialized(true);
@@ -1125,9 +1151,9 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                   )}
 
                   {/* PPTX Preview — rendered slides */}
-                  {activePanel === "preview" && p?.presentations?.[0] && (
+                  {activePanel === "preview" && (latestPresentationId || p?.presentations?.[0]) && (
                     <PptxPreview
-                      presentationId={p.presentations[0].id}
+                      presentationId={latestPresentationId || p!.presentations[0].id}
                       projectId={id}
                       onOpenEditor={() => setActivePanel("editor")}
                     />
