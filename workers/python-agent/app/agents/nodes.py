@@ -669,6 +669,7 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     if use_diagram_images:
         mode_parts.append("Diagram Images")
     mode_label = " + ".join(mode_parts) if mode_parts else "Standard Mode"
+    logger.info("slide_writer_modes", creative=is_creative, diagrams=use_diagram_images, audience=audience)
     await publisher.publish(
         "writing_slides", 0.7,
         f"Designing slides with {mode_label} for {audience} audience..."
@@ -734,37 +735,40 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     diagram_section = ""
     if use_diagram_images:
         diagram_section = (
-            "\n\n## DIAGRAM IMAGES MODE (Kroki — ENABLED)\n"
-            "For complex diagrams, embed rendered images via Kroki markers.\n\n"
-            "### IMPORTANT LAYOUT RULES FOR DIAGRAMS:\n"
-            "- A diagram slide should ONLY have: title (y:0.3-1.2) + diagram image (y:1.3-5.8) + optional caption\n"
-            "- NEVER place other shapes/text/cards that overlap with the diagram area\n"
-            "- If you need text alongside a diagram, use 2-column: diagram left (x:0.5, w:7), text right (x:8, w:4.5)\n"
-            "- NEVER put a diagram AND a table on the same slide\n\n"
-            "### How to use:\n"
-            "Write the diagram source as COMMENTS with this exact format:\n"
-            "```\n"
-            "// First: set slide background and title\n"
+            "\n\n## DIAGRAM MODE: KROKI (MANDATORY)\n"
+            "You MUST use Kroki diagram markers for ANY architecture, flow, sequence, or relationship diagram.\n"
+            "Do NOT use addShape to draw diagrams manually. Use Kroki instead.\n\n"
+            "### FORMAT (you MUST follow this EXACTLY):\n"
+            "In your slide code, write the diagram as JavaScript comments with these exact markers:\n\n"
+            "```javascript\n"
             "slide.background = { color: 'FFFFFF' };\n"
             "slide.addText('ARCHITECTURE', { x: 0.5, y: 0.3, w: 5, h: 0.3, fontSize: 10, bold: true, color: '00B4D8', charSpacing: 2 });\n"
             "slide.addText('System Architecture', { x: 0.5, y: 0.6, w: 10, h: 0.6, fontSize: 28, bold: true, color: '1A1A2E' });\n"
-            "// Then: the Kroki diagram (will be replaced with addImage automatically)\n"
             "// KROKI_DIAGRAM:mermaid\n"
             "// graph TD\n"
-            "//   A[API Gateway] --> B[Auth Service]\n"
-            "//   A --> C[Order Service]\n"
-            "//   C --> D[Payment Service]\n"
-            "//   C --> E[Notification Service]\n"
+            "//     A[Mobile/Web] --> B[API Gateway]\n"
+            "//     B --> C[Auth Service]\n"
+            "//     B --> D[Order Service]\n"
+            "//     D --> E[Payment]\n"
+            "//     D --> F[Notification]\n"
+            "//     C -.-> G[(PostgreSQL)]\n"
+            "//     D -.-> H[(Redis Cache)]\n"
             "// END_KROKI_DIAGRAM\n"
-            "// Caption below diagram\n"
-            "slide.addText('Fig 1: Request flow through microservices', { x: 0.5, y: 6.5, w: 12, h: 0.3, fontSize: 9, italic: true, color: '999999' });\n"
-            "```\n"
-            "The system renders the diagram and embeds it at x:0.5, y:1.3, w:12.33, h:5.0.\n\n"
-            "### Supported types: mermaid, plantuml, d2, graphviz, blockdiag, seqdiag, erd\n\n"
-            "### When to use Kroki vs shapes:\n"
-            "- Kroki: sequence diagrams, complex flowcharts (6+ nodes), ER diagrams, network diagrams\n"
-            "- Native shapes: simple 3-5 step flows, card layouts, stat callouts, comparisons, timelines\n"
-            "- PREFER native shapes when possible — they're editable in PowerPoint\n"
+            "slide.addText('Figure 1: Microservices request flow', { x: 0.5, y: 6.5, w: 12, h: 0.3, fontSize: 9, italic: true, color: '999999' });\n"
+            "```\n\n"
+            "The markers `// KROKI_DIAGRAM:<type>` and `// END_KROKI_DIAGRAM` are REQUIRED.\n"
+            "The system will render the diagram as a PNG image and embed it automatically.\n"
+            "ONLY put title + KROKI_DIAGRAM + caption on diagram slides. No other shapes.\n\n"
+            "### Diagram types to use:\n"
+            "- `mermaid` — flowcharts (graph TD/LR), sequence diagrams, class diagrams, ER diagrams\n"
+            "- `plantuml` — detailed sequence diagrams, component diagrams, activity diagrams\n"
+            "- `d2` — clean architecture diagrams with containers and connections\n\n"
+            "### RULES:\n"
+            "- At least ONE slide in this deck MUST use a KROKI_DIAGRAM marker\n"
+            "- For architecture/flow topics: use mermaid `graph TD` or `graph LR`\n"
+            "- For sequence/interaction topics: use mermaid `sequenceDiagram`\n"
+            "- Keep diagram source concise — max 20 lines\n"
+            "- Every line of diagram source MUST start with `// ` (two slashes + space)\n"
         )
     else:
         diagram_section = (
@@ -853,7 +857,13 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         "For each slide, FIRST decide the best layout (table? chart? card grid? flow diagram?) "
         "then write clean pptxgenjs code using the grid coordinates from the API reference. "
         "Include specific data from the research — real numbers, tool names, metrics.\n"
-        "Output ONLY the JSON array."
+        + (
+            "\nREMINDER: Diagram Mode is ON. You MUST include at least one slide with a "
+            "// KROKI_DIAGRAM:mermaid marker for any architecture, flow, or process diagram. "
+            "Do NOT draw diagrams manually with addShape — use the Kroki marker format instead.\n"
+            if use_diagram_images else ""
+        )
+        + "Output ONLY the JSON array."
     )
 
     visual_parts = _build_visual_context(state)
