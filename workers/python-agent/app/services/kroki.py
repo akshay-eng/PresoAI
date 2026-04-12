@@ -37,29 +37,58 @@ SUPPORTED_TYPES = {
 }
 
 
+# Diagram types that only support SVG (not PNG)
+SVG_ONLY_TYPES = {"d2", "structurizr", "wireviz", "dbml"}
+
+
 async def render_diagram(
     diagram_type: str,
     source: str,
     output_format: str = "png",
 ) -> bytes | None:
-    """Render a diagram via Kroki and return raw image bytes."""
+    """Render a diagram via Kroki and return raw image bytes.
+
+    For types that only support SVG, renders as SVG first then converts to PNG
+    using cairosvg (if available) or returns the SVG bytes.
+    """
     dtype = diagram_type.lower().strip()
     if dtype not in SUPPORTED_TYPES:
         logger.warning("unsupported_kroki_type", dtype=dtype)
         return None
 
+    # Some types (d2, structurizr) only support SVG output
+    actual_format = output_format
+    needs_conversion = False
+    if dtype in SVG_ONLY_TYPES and output_format == "png":
+        actual_format = "svg"
+        needs_conversion = True
+
     try:
-        # Use POST with JSON body for reliability
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{KROKI_BASE_URL}/{dtype}/{output_format}",
+                f"{KROKI_BASE_URL}/{dtype}/{actual_format}",
                 headers={"Content-Type": "text/plain"},
                 content=source.encode("utf-8"),
             )
 
         if resp.status_code != 200:
-            logger.error("kroki_render_failed", status=resp.status_code, body=resp.text[:200])
+            logger.error("kroki_render_failed", status=resp.status_code, body=resp.text[:200], dtype=dtype)
+            # Fallback: try converting to mermaid if it was d2
+            if dtype == "d2":
+                logger.info("kroki_d2_fallback_to_mermaid", original_type=dtype)
+                return await render_diagram("mermaid", source, output_format)
             return None
+
+        if needs_conversion:
+            # Convert SVG to PNG
+            try:
+                import cairosvg
+                png_bytes = cairosvg.svg2png(bytestring=resp.content, output_width=2400)
+                return png_bytes
+            except ImportError:
+                logger.warning("cairosvg_not_available, returning SVG as-is")
+                # Return SVG bytes — pptxgenjs may handle it
+                return resp.content
 
         return resp.content
 
