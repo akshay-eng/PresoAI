@@ -70,21 +70,22 @@ async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[
                 code = code[:m.start()] + replacement + code[m.end():]
                 continue
 
-            # Upload to S3
+            # Encode as base64 data URI and embed directly — avoids HTTP/HTTPS fetch issues
+            import base64 as b64
+            b64_data = b64.b64encode(image_bytes).decode("ascii")
+            logger.info("kroki_diagram_rendered", size=len(image_bytes), slide=slide.get("slide_number"))
+
+            # Also upload to S3 for future reference (non-blocking)
             s3_key = f"diagrams/{job_id}/diagram_{diagram_idx}.png"
             diagram_idx += 1
             try:
                 s3.upload_bytes(image_bytes, s3_key, content_type="image/png")
-                url = s3.generate_presigned_url(s3_key, expires_in=86400)
-                logger.info("kroki_diagram_uploaded", key=s3_key, size=len(image_bytes), slide=slide.get("slide_number"))
-            except Exception as e:
-                logger.error("kroki_s3_upload_failed", error=str(e))
-                code = code[:m.start()] + "" + code[m.end():]
-                continue
+            except Exception:
+                pass  # S3 upload is optional
 
-            # Replace marker with addImage using the S3 presigned URL
+            # Embed as base64 data in the slide code
             replacement = (
-                f'slide.addImage({{ path: "{url}", '
+                f'slide.addImage({{ data: "image/png;base64,{b64_data}", '
                 f'x: 1.0, y: 1.5, w: 11.33, h: 4.5 }});'
             )
             code = code[:m.start()] + replacement + code[m.end():]
