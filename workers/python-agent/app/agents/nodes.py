@@ -601,133 +601,31 @@ async def outline_review(state: PPTGenerationState) -> dict:
 
 
 PPTXGENJS_API_REFERENCE = """
-## pptxgenjs API Reference (for code generation)
+## pptxgenjs Quick Reference
 
-### Slide Dimensions (CRITICAL — memorize these)
-Layout: LAYOUT_WIDE = 13.33" wide x 7.5" tall.
-Safe margins: x starts at 0.5, ends at 12.83. y starts at 0.4, ends at 7.1.
-Usable content area: 12.33" wide x 6.7" tall.
+Slide: 13.33" x 7.5" (LAYOUT_WIDE). Colors: 6-char hex WITHOUT # prefix.
 
-### LAYOUT GRID SYSTEM (MUST FOLLOW)
-Before writing ANY code, plan your layout on this grid:
-
-**Header zone**: y: 0.3-1.2 (section label + title)
-**Content zone**: y: 1.3-5.8 (main content — cards, text, images)
-**Footer zone** (OPTIONAL): y: 6.2-7.2 (page number, small caption — NOT mandatory)
-
-**Column widths** (with 0.3" gaps between columns):
-- 1 column: x: 0.5, w: 12.33
-- 2 columns: x: 0.5 w: 6.0, x: 6.8 w: 6.0
-- 3 columns: x: 0.5 w: 3.9, x: 4.7 w: 3.9, x: 8.9 w: 3.9
-- 4 columns: x: 0.5 w: 2.85, x: 3.6 w: 2.85, x: 6.7 w: 2.85, x: 9.8 w: 2.85
-
-### OVERLAP PREVENTION (CRITICAL)
-- Before placing ANY element, mentally check: does this x,y,w,h overlap with anything already placed?
-- Text INSIDE a shape/card: x must be >= card.x, y must be >= card.y, x+w must be <= card.x+card.w
-- Logo next to text: if logo is at x:1, w:0.8, then text starts at x:1.9 (logo.x + logo.w + 0.1 gap)
-- Cards in a row: card2.x must be >= card1.x + card1.w + gap (usually 0.3" gap)
-- NEVER place text at the same x,y as a shape unless the text is meant to be INSIDE the shape
-
-### API Methods
-
-**Shapes:**
-slide.addShape(pres.shapes.RECTANGLE, { x, y, w, h, fill: { color: "HEX" }, line: { color, width }, rectRadius: 0.1 });
-Available: RECTANGLE, ROUNDED_RECTANGLE, OVAL, LINE, TRIANGLE, RIGHT_TRIANGLE, TRAPEZOID, DIAMOND, STAR_5
-Shadow: { shadow: { type: "outer", color: "000000", blur: 4, offset: 2, opacity: 0.15 } }
-Transparency: fill: { color: "HEX", transparency: 50 }
-
-**Text:**
-slide.addText("text", { x, y, w, h, fontSize, fontFace, color, bold, italic, align, valign, margin: [top,right,bottom,left] });
-slide.addText([{ text: "line1", options: { bold: true, fontSize: 14, color: "333333", breakLine: true } }, ...], { x, y, w, h });
-Bullets: { bullet: true, breakLine: true }
-
-**Background:**
+### API
 slide.background = { color: "HEX" };
+slide.addText("text", { x, y, w, h, fontSize, fontFace, color, bold, align, valign });
+slide.addText([{ text: "line", options: { bold: true, breakLine: true } }], { x, y, w, h });
+slide.addShape(pres.shapes.RECTANGLE, { x, y, w, h, fill: { color: "HEX" }, rectRadius: 0.1 });
+slide.addShape(pres.shapes.LINE, { x, y, w, h: 0, line: { color: "HEX", width: 2 } });
+slide.addTable(rows, { x, y, w, colW: [3,5,5], autoPage: false, border: { pt: 0.5, color: "E0E0E0" } });
+slide.addChart(pres.charts.BAR, [{ name: "S1", labels: [...], values: [...] }], { x, y, w, h, chartColors: ["HEX"], showValue: true });
+slide.addImage({ path: "https://...", x, y, w, h });
 
-**Images:**
-slide.addImage({ path: "https://url.com/image.png", x, y, w, h });
-For logos: ALWAYS place on a light background card, minimum w: 0.8
+### Table cell format
+{ text: "Header", options: { fill: { color: "1A1A2E" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center" } }
 
-**Tables (MUST look professional — never plain/boring):**
-slide.addTable(rows, { x, y, w, autoPage: false, border: { pt: 0.5, color: "E0E0E0" }, colW: [3, 4.5, 4.5] });
-Header row: [
-  { text: "ASPECT", options: { fill: { color: "1A1A2E" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center", valign: "middle" } },
-  { text: "MONOLITH", options: { fill: { color: "2D3561" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center" } },
-  { text: "MICROSERVICES", options: { fill: { color: "0F3460" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center" } }
-]
-Data rows (alternate fills for readability):
-  Even rows: { fill: { color: "F8F9FA" } }
-  Odd rows:  { fill: { color: "FFFFFF" } }
-  Cell text: { color: "333333", fontSize: 10, valign: "middle", align: "left", margin: [4, 8, 4, 8] }
-IMPORTANT table rules:
-- ALWAYS set colW to control column widths (proportional to content)
-- ALWAYS alternate row fills (zebra striping) for readability
-- Header row MUST have bold white text on dark colored background
-- Use margin: [4, 8, 4, 8] in cells for padding (top, right, bottom, left in points)
-- Add a colored accent bar above the table: addShape RECTANGLE { x, y: tableY-0.08, w, h: 0.08, fill: accent }
-- Each cell should have ONE clear line of content, not mashed text
+### Layout grid (use these coordinates)
+Header: y: 0.3 to 1.2 | Content: y: 1.3 to 6.8 | Slide number: x:12.5, y:7.0
+2-col: [x:0.5 w:6.0] [x:6.8 w:6.0]
+3-col: [x:0.5 w:3.9] [x:4.7 w:3.9] [x:8.9 w:3.9]
 
-**Charts:**
-slide.addChart(pres.charts.BAR, [{ name: "Series", labels: [...], values: [...] }], { x, y, w, h, chartColors: ["HEX1"], showValue: true });
-Types: BAR, LINE, PIE, DOUGHNUT. barDir: "col" for vertical bars.
-
-### TESTED LAYOUT RECIPES (use these as starting points)
-
-**Recipe: 3-Card Row**
-```
-// Card 1
-slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.5, w: 3.9, h: 4.0, fill: { color: "FFFFFF" }, shadow: { type: "outer", blur: 4, offset: 2, color: "000000", opacity: 0.1 }, rectRadius: 0.1 });
-// Card 1 colored top bar
-slide.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: 1.5, w: 3.9, h: 0.15, fill: { color: "0F3460" } });
-// Card 1 title (INSIDE the card)
-slide.addText("Title", { x: 0.7, y: 1.85, w: 3.5, h: 0.5, fontSize: 16, bold: true, color: "1A1A2E" });
-// Card 1 body (INSIDE the card, below title)
-slide.addText("Description text here", { x: 0.7, y: 2.4, w: 3.5, h: 2.8, fontSize: 12, color: "555555", valign: "top" });
-// Repeat for Card 2 at x: 4.7 and Card 3 at x: 8.9
-```
-
-**Recipe: Stat Callout Row (use INSIDE content zone, NOT as a footer)**
-```
-// 3 stat cards in a row — place at y:4.5 or wherever they fit in content zone
-slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 4.5, w: 3.9, h: 1.5, fill: { color: "F0F4FF" }, rectRadius: 0.1 });
-slide.addText("42%", { x: 0.5, y: 4.6, w: 3.9, h: 0.8, fontSize: 32, bold: true, color: "0F3460", align: "center" });
-slide.addText("Alert noise reduction", { x: 0.5, y: 5.4, w: 3.9, h: 0.4, fontSize: 10, color: "666666", align: "center" });
-// Repeat at x: 4.7 and x: 8.9
-```
-
-**Recipe: Logo + Brand Name Card**
-```
-slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 1.0, y: 2.0, w: 1.8, h: 2.2, fill: { color: "F8F8F8" }, shadow: { type: "outer", blur: 3, offset: 1, color: "000000", opacity: 0.1 }, rectRadius: 0.1 });
-slide.addImage({ path: "LOGO_URL", x: 1.3, y: 2.2, w: 1.2, h: 1.0 });
-slide.addText("Brand Name", { x: 1.0, y: 3.3, w: 1.8, h: 0.5, fontSize: 11, bold: true, color: "333333", align: "center" });
-```
-
-### CRITICAL RULES
-- NEVER use "#" in hex colors — causes PPTX corruption
-- NEVER reuse option objects — create fresh {} for each call
-- NEVER place elements outside 0-13.33 (x) or 0-7.5 (y)
-- ALWAYS verify text is INSIDE its parent card by checking coordinates
-- ALWAYS leave 0.2-0.3" padding inside cards for text
-- Use breakLine:true between text array items
-- Keep font sizes consistent: titles 24-32, subtitles 16-18, body 11-14, labels 9-11
-- Maximum 5-6 visual elements per slide — don't overcrowd
-
-### CONTENT RICHNESS (CRITICAL — slides must NOT be empty/basic)
-- Every content slide MUST have at minimum: title + 2-3 paragraphs or a rich table or a detailed diagram
-- Tables MUST have real data — at least 4-5 rows with specific values, not generic placeholders
-- Use the research data from the outline — include actual numbers, percentages, tool names, comparisons
-- Card text should be 2-4 sentences explaining the concept, not just a single phrase
-- Stat callouts need context: the number + what it measures + why it matters (3 text elements per stat)
-- NEVER leave large empty areas on a slide — fill the content zone (y: 1.3 to 5.8)
-- If a slide looks sparse, add a supporting detail card, a key takeaway bar, or a footnote section
-
-### ELEMENT STACKING ORDER (prevents overlapping)
-- Place background shapes FIRST (full-width bars, section headers)
-- Place container cards SECOND
-- Place text INSIDE containers THIRD
-- Place accent elements (lines, dots, decorators) LAST
-- NEVER place two independent content groups at the same y position unless they are in separate columns
-- If a slide has both a diagram AND text, use 2-column layout: diagram left (w:7), text right (w:5)
+### Rules
+- No "#" in colors. Fresh {} per call. No elements outside 0–13.33 x 0–7.5.
+- Text inside card: card.x+0.2 <= text.x, text.x+text.w <= card.x+card.w-0.2
 """
 
 
@@ -884,153 +782,56 @@ async def slide_writer(state: PPTGenerationState) -> dict:
             "```\n"
         )
 
-    messages = [
-        SystemMessage(content=(
-            "You are a world-class presentation designer at a top design agency. "
-            "You create CATALOGUE-QUALITY presentation slides — the kind that win design awards. "
-            "You write pptxgenjs JavaScript code that produces polished, professional, visually rich slides.\n\n"
-            f"{PPTXGENJS_API_REFERENCE}\n"
-            f"{diagram_section}"
-            f"{style_section}"
-            f"{kg_section}"
-            f"{logos_section}\n"
-            + (
-                "## CREATIVE MODE — ADVANCED VISUALIZATION (ENABLED)\n"
-                "The user has enabled CREATIVE MODE. You MUST go beyond basic text+bullet slides. "
-                "For EVERY slide, think: what is the BEST visual way to present this data?\n\n"
-                "### Mandatory Visualization Techniques (use at least 3-4 across the deck):\n"
-                "1. **Data Tables** — Use `slide.addTable(rows, opts)` for comparisons, feature matrices, "
-                "pricing tiers, or any structured data. Style with colored header rows, alternating row colors, borders.\n"
-                "2. **Pyramid/Funnel** — Stack colored trapezoid shapes (addShape TRAPEZOID) for hierarchies, "
-                "priority tiers, or funnels (e.g., sales funnel, maturity model).\n"
-                "3. **Process Flows** — Numbered circles/boxes connected by arrow shapes for workflows, "
-                "pipelines, or step-by-step processes. Use addShape for each step + addShape ARROW between.\n"
-                "4. **Comparison Charts** — Side-by-side colored bars using addShape RECTANGLE with proportional widths "
-                "to visually represent metrics, percentages, or scores.\n"
-                "5. **Timeline** — Horizontal line with evenly-spaced circles/diamonds and text labels for milestones.\n"
-                "6. **Quadrant/Matrix** — 2x2 grid of colored rectangles for strategic frameworks "
-                "(e.g., risk vs impact, effort vs value).\n"
-                "7. **Hub & Spoke** — Central circle with lines radiating to surrounding circles for ecosystems, "
-                "integrations, or relationship diagrams.\n"
-                "8. **Stacked Bar/Progress** — Horizontal colored segments showing proportions or progress.\n"
-                "9. **Icon Grids** — Use brand logos (from logo.dev if available) arranged in a clean grid "
-                "with labels underneath for tool/vendor landscapes.\n"
-                "10. **Stat Callout Cards** — Large bold numbers (48-72pt) with small descriptive labels in colored cards.\n\n"
-                "### Creative Mode Rules:\n"
-                "- NEVER use plain bullet lists — always find a visual structure.\n"
-                "- Each slide must have a DIFFERENT layout — no two slides should look the same.\n"
-                "- If a slide has numbers/metrics, use stat callouts or bar visualizations, not text.\n"
-                "- If a slide has a process, use a flow diagram, not text.\n"
-                "- If a slide compares things, use a table or matrix, not text.\n"
-                "- COMPLETE every visualization you start — don't leave shapes half-done or misaligned.\n"
-                "- Test your x/y/w/h coordinates mentally: shapes must not overlap unintentionally.\n\n"
-                if is_creative else ""
-            )
-            + "## DESIGN PRINCIPLES — CONTENT-FIRST, DATA-RICH\n"
-            "Your #1 job is to present INFORMATION CLEARLY. Design serves content, not the other way around.\n\n"
-            "### Content Density (MOST IMPORTANT)\n"
-            "- Every slide MUST be INFORMATION-DENSE — use the research data from the outline.\n"
-            "- Include real numbers, percentages, comparisons, tool names — not generic placeholder text.\n"
-            "- A slide with just a title and 3 bullet points is LAZY. Think: how else can this be shown?\n"
-            "- For ANY data: use addTable() or addChart() — NEVER just write numbers as text.\n"
-            "- For ANY process: use shapes connected with arrows — NEVER just list steps as bullets.\n"
-            "- For ANY comparison: use a well-formatted table or side-by-side cards — NEVER just text.\n\n"
-            "### Charts (addChart) — USE WITH PROPER AXES\n"
-            "- BAR charts: catAxisTitle, valAxisTitle, showValue:true, catGridLine:{style:'none'}\n"
-            "- Always include axis labels so the reader knows what's being measured.\n"
-            "- Use chartColors array matching the number of data points.\n"
-            "- Charts should have REAL data from research, not made-up numbers.\n\n"
-            "### Color Palette (pick ONE and stick with it)\n"
-            "If no style profile: use this default professional palette:\n"
-            "- Dark: 1A1A2E (backgrounds, headings)\n"
-            "- Primary accent: 0F3460 (cards, headers)\n"
-            "- Secondary accent: 00B4D8 (highlights, stat numbers)\n"
-            "- Warm accent: E94560 (alerts, emphasis)\n"
-            "- Light bg: F8F9FA (card fills, table even rows)\n"
-            "- Text: 333333 (body), FFFFFF (on dark bg)\n"
-            "Use dark background ONLY for the title slide. Content slides: white/light background.\n\n"
-            "### Layout Rules\n"
-            "- Group related content into cards with thin colored top border (3px).\n"
-            "- Use 2-column or 3-column grid from the API reference.\n"
-            "- Section label above title: ALL CAPS, small font (10pt), accent color, charSpacing: 2.\n"
-            "- NO thick footer bars — they waste space. Put stats inline in the content area.\n"
-            "- Slide number bottom-right: fontSize 8, color 'AAAAAA'.\n"
-            "- Keep consistent 0.5\" margins on all sides.\n\n"
-            "### What NOT to do\n"
-            "- Do NOT use oversized shapes (full-width colored blocks) just to fill space.\n"
-            "- Do NOT add a dark footer bar on every slide.\n"
-            "- Do NOT use generic text like 'Key insights' with no actual insight.\n"
-            "- Do NOT leave large empty areas — fill with relevant content from research.\n"
-            "- Do NOT make circles/ovals as the primary layout — they waste space and look amateurish.\n\n"
-            "## Output Format\n"
-            "Output ONLY a valid JSON array. Each object:\n"
-            "- \"slide_number\": number\n"
-            "- \"title\": string\n"
-            "- \"speaker_notes\": string (2-3 sentences of what to say)\n"
-            "- \"code\": string — pptxgenjs JavaScript code for this slide.\n"
-            "  You have access to `slide` and `pres`. Do NOT call pres.addSlide().\n"
-            "  Colors are 6-char hex WITHOUT # prefix. NEVER use # in colors.\n"
-            "  Create fresh option objects for each addShape/addText call — never reuse.\n\n"
-            + {
-                "executive": (
-                    "## AUDIENCE: EXECUTIVE (C-Suite / VP / Director)\n"
-                    "- Lead with BUSINESS IMPACT — revenue, cost savings, ROI, market position\n"
-                    "- Use large stat callouts (48-72pt numbers) for key metrics\n"
-                    "- Minimal technical jargon — translate tech concepts to business outcomes\n"
-                    "- Include strategic frameworks: quadrants, maturity models, competitive landscapes\n"
-                    "- Slides should answer: 'Why should I care?' and 'What's the bottom line?'\n"
-                    "- Keep text sparse — 3-4 bullet points max, each under 15 words\n"
-                    "- Use premium, polished design — dark backgrounds, gold/teal accents\n"
-                ),
-                "technical": (
-                    "## AUDIENCE: TECHNICAL (Engineers / Architects / DevOps)\n"
-                    "- Lead with ARCHITECTURE and HOW IT WORKS — system diagrams, data flows, APIs\n"
-                    "- Include technical details: protocols, latency numbers, throughput metrics\n"
-                    "- Use process flow diagrams, architecture boxes, and integration arrows\n"
-                    "- Include code snippets or config examples where relevant (in monospace text)\n"
-                    "- Slides should answer: 'How does this work?' and 'How do I implement it?'\n"
-                    "- More text density is OK — engineers expect detailed slides\n"
-                    "- Use clean, structured layouts — tables for comparisons, timelines for rollouts\n"
-                ),
-                "general": (
-                    "## AUDIENCE: GENERAL (Mixed / All-hands / External)\n"
-                    "- Balance business value with approachable explanations\n"
-                    "- Use analogies and visual metaphors to explain complex topics\n"
-                    "- Include a mix of stats, stories, and visuals\n"
-                    "- Avoid deep technical details — keep it accessible\n"
-                    "- Slides should answer: 'What is this?' and 'Why does it matter?'\n"
-                    "- Medium text density — enough context without overwhelming\n"
-                    "- Use friendly, modern design — lighter backgrounds, vibrant accents\n"
-                ),
-            }.get(audience, f"Target audience: {audience}.\n")
-            + "\n"
-        )),
+    # Build system message — keep it FOCUSED and SHORT
+    sys_parts = [
+        "You are an expert presentation designer. Write pptxgenjs code for professional, well-structured slides.",
+        PPTXGENJS_API_REFERENCE,
     ]
 
-    # Build slide_writer human message with visual context
+    if style_section:
+        sys_parts.append(style_section)
+    if kg_section:
+        sys_parts.append(kg_section)
+    if logos_section:
+        sys_parts.append(logos_section)
+    if use_diagram_images:
+        sys_parts.append(diagram_section)
+
+    sys_parts.append(
+        "\n## Design Guidelines\n"
+        "Colors (default palette if no style profile): 1A1A2E (dark), 0F3460 (primary), 00B4D8 (accent), E94560 (warm), F8F9FA (light bg), 333333 (text).\n"
+        "Each slide: section label (ALL CAPS, 10pt, accent color) + title (28pt bold) + structured content.\n"
+        "Use addTable for comparisons. Use addChart for metrics. Use shapes+arrows for flows.\n"
+        "White/light backgrounds for content slides. Dark only for title slide.\n"
+        f"Audience: {audience}.\n"
+    )
+
+    if is_creative:
+        sys_parts.append(
+            "\n## Creative Mode ON\n"
+            "Use advanced layouts: tables with zebra striping, process flow shapes, "
+            "stat callout cards, timelines, comparison matrices. No plain bullet lists.\n"
+        )
+
+    sys_parts.append(
+        "\n## Output\n"
+        "Return a JSON array. Each item: {\"slide_number\": N, \"title\": \"...\", \"speaker_notes\": \"...\", \"code\": \"...\"}\n"
+        "In code: you have `slide` and `pres`. Do NOT call pres.addSlide(). No # in hex colors. Fresh {} per call.\n"
+    )
+
+    messages = [SystemMessage(content="\n".join(sys_parts))]
+
+    # Build human message
     human_text = (
-        f"Create {num_slides} CATALOGUE-QUALITY slides for:\n\n"
+        f"Create {num_slides} slides for:\n\n"
         f"Topic: {prompt}\n"
         f"Audience: {audience}\n\n"
-        f"Slide outline:\n{outline_text}\n\n"
-        f"Research context:\n{summary[:2000]}\n\n"
-        "IMPORTANT: Make these slides look like they came from a premium design agency. "
-        "Use colored backgrounds, card layouts, accent bars, stat callouts, and visual hierarchy. "
-        "Every slide must have shapes and color — NO plain text on white background.\n\n"
-        "## BEFORE YOU WRITE EACH SLIDE:\n"
-        "1. PLAN the layout first: how many columns? What goes where?\n"
-        "2. Use the GRID SYSTEM from the API reference (0.5/4.7/8.9 for 3-col, etc.)\n"
-        "3. Calculate EXACT x,y,w,h for every element BEFORE writing code\n"
-        "4. CHECK: does any text overlap a shape? Does any card overlap another card?\n"
-        "5. Logos must be INSIDE their container cards, not floating over other content\n"
-        "6. Text inside a card must have x >= card.x+0.2 and x+w <= card.x+card.w-0.2\n\n"
-        "## COMMON MISTAKES TO AVOID:\n"
-        "- Placing a logo at x:2 when text at x:1.5 w:3 already covers that area\n"
-        "- Cards that are too wide and overlap the next column\n"
-        "- Text extending beyond slide boundaries (x+w > 13.33 or y+h > 7.5)\n"
-        "- Placing 6+ items in a row — max 4 items per row, use multiple rows instead\n"
-        "- Font sizes too large for the container (if card is h:2, don't use fontSize:36 with 5 lines)\n\n"
-        "Output the JSON array."
+        f"Outline:\n{outline_text}\n\n"
+        f"Research:\n{summary[:3000]}\n\n"
+        "For each slide, FIRST decide the best layout (table? chart? card grid? flow diagram?) "
+        "then write clean pptxgenjs code using the grid coordinates from the API reference. "
+        "Include specific data from the research — real numbers, tool names, metrics.\n"
+        "Output ONLY the JSON array."
     )
 
     visual_parts = _build_visual_context(state)
