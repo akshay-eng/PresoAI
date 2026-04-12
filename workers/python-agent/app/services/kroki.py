@@ -29,16 +29,18 @@ logger = structlog.get_logger()
 
 KROKI_BASE_URL = "https://kroki.io"
 
-# Supported diagram types
+# Supported diagram types (all Kroki-supported types)
 SUPPORTED_TYPES = {
-    "mermaid", "plantuml", "d2", "graphviz", "dot", "blockdiag",
-    "seqdiag", "actdiag", "nwdiag", "erd", "excalidraw", "vega",
-    "vegalite", "ditaa", "svgbob", "bpmn", "bytefield", "tikz",
+    "mermaid", "plantuml", "d2", "graphviz", "dot",
+    "blockdiag", "seqdiag", "actdiag", "nwdiag", "packetdiag", "rackdiag",
+    "erd", "excalidraw", "vega", "vegalite",
+    "ditaa", "svgbob", "bpmn", "bytefield", "tikz",
+    "pikchr", "structurizr", "dbml", "wireviz", "wavedrom", "nomnoml",
 }
 
 
-# Diagram types that only support SVG (not PNG)
-SVG_ONLY_TYPES = {"d2", "structurizr", "wireviz", "dbml"}
+# Diagram types that only support SVG (not PNG) — need cairosvg conversion
+SVG_ONLY_TYPES = {"d2", "structurizr", "wireviz", "dbml", "pikchr", "nomnoml"}
 
 
 async def render_diagram(
