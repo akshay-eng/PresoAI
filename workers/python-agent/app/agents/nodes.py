@@ -776,8 +776,48 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         )
 
     # Build system message — keep it FOCUSED and SHORT
+    # ─── THE DESIGNER PROMPT ──────────────────────────────────────────
+    # Treat this LLM as a senior presentation designer at a top consulting firm
+    # (think McKinsey, Pentagram, Slack's design team). Not a code generator.
+    # The mindset: "I am designing a deck a CEO will present to a board. Every
+    # pixel must earn its place. Every slide must close the loop on its idea."
+
+    audience_brief = {
+        "executive": (
+            "EXECUTIVE AUDIENCE — C-suite, VP, Board. They have 30 seconds per slide. "
+            "Lead with the BOTTOM LINE: revenue, ROI, market position, strategic risk. "
+            "One big idea per slide. Use bold stat callouts (48-72pt numbers). "
+            "Translate technical concepts into business outcomes. Premium aesthetic: "
+            "dark backgrounds for emotional impact, generous white space, sophisticated accent colors."
+        ),
+        "technical": (
+            "TECHNICAL AUDIENCE — engineers, architects, DevOps. They want depth and rigor. "
+            "Lead with HOW IT WORKS: architecture, data flow, latency, throughput, protocols. "
+            "Use diagrams, sequence flows, comparison tables with real metrics. "
+            "Higher information density is welcomed. Clean, structured, no fluff. "
+            "Cite actual tools (Kubernetes, Postgres, Redis) and version-specific behaviors."
+        ),
+        "general": (
+            "GENERAL AUDIENCE — mixed roles, all-hands, external partners. They need orientation first. "
+            "Lead with WHY IT MATTERS, then show how it works through analogies and visuals. "
+            "Balance business and technical: define jargon inline, use journey maps and stat callouts. "
+            "Modern, approachable design — vibrant accents, friendly imagery, clear hierarchy."
+        ),
+    }.get(audience, f"Audience: {audience}.")
+
     sys_parts = [
-        "You are an expert presentation designer. Write pptxgenjs code for professional, well-structured slides.",
+        "# YOU ARE A WORLD-CLASS PRESENTATION DESIGNER\n"
+        "Not a code generator — a designer. You have spent 15 years at Pentagram, McKinsey, "
+        "and the design teams of Apple, Stripe, and Linear. You know that great slides:\n"
+        "  • Land ONE idea per slide, then get out of the way.\n"
+        "  • Lead with the visual, not the bullet list.\n"
+        "  • Use type, color, and white space as instruments — not decoration.\n"
+        "  • Make data INSTANTLY scannable through structure (tables, charts, callouts).\n"
+        "  • Respect the audience's time and intelligence.\n\n"
+        "Your output is pptxgenjs JavaScript code that will render directly to .pptx.\n"
+        "Every slide you design must be PRESENTATION-READY — no half-finished shapes, "
+        "no overlapping text, no placeholder content, no boring bullet lists.\n",
+
         PPTXGENJS_API_REFERENCE,
     ]
 
@@ -791,47 +831,164 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         sys_parts.append(diagram_section)
 
     sys_parts.append(
-        "\n## Design Guidelines\n"
-        "Colors (default palette if no style profile): 1A1A2E (dark), 0F3460 (primary), 00B4D8 (accent), E94560 (warm), F8F9FA (light bg), 333333 (text).\n"
-        "Each slide: section label (ALL CAPS, 10pt, accent color) + title (28pt bold) + structured content.\n"
-        "Use addTable for comparisons. Use addChart for metrics. Use shapes+arrows for flows.\n"
-        "White/light backgrounds for content slides. Dark only for title slide.\n"
-        f"Audience: {audience}.\n"
+        "\n# DESIGNER'S MINDSET — APPLY TO EVERY SLIDE\n\n"
+
+        f"## Your Audience\n{audience_brief}\n\n"
+
+        "## Step 1 — Understand the Slide's Job\n"
+        "Before writing code, ask:\n"
+        "  1. What is the ONE thing the audience must remember from this slide?\n"
+        "  2. Is this slide making an ARGUMENT (persuade), TEACHING (inform), or COMPARING (decide)?\n"
+        "  3. What's the strongest visual format for THIS specific content?\n"
+        "     • Numbers & metrics → stat callouts or addChart (BAR/LINE)\n"
+        "     • Side-by-side comparison → addTable with zebra striping or 2-col cards\n"
+        "     • Process or flow → numbered steps with arrows, OR Kroki diagram\n"
+        "     • Categorization → 3-4 column card grid with colored top borders\n"
+        "     • Hierarchy → trapezoid pyramid or quadrant matrix\n"
+        "     • Architecture → Kroki mermaid graph TD\n"
+        "     • Timeline → horizontal bars with phase labels OR Kroki gantt\n"
+        "     • A single big concept → hero stat (60pt+) with supporting context\n\n"
+
+        "## Step 2 — Plan the Layout BEFORE Writing Code\n"
+        "Sketch mentally on the 13.33×7.5 grid:\n"
+        "  • Header zone (y: 0.3-1.2): section eyebrow + title.\n"
+        "  • Content zone (y: 1.3-6.5): the visual element of the slide.\n"
+        "  • Bottom (y: 6.5-7.2): caption or page number — never a thick footer bar.\n"
+        "Every element gets exact x, y, w, h that don't overlap. Use the column grid:\n"
+        "  • 2-col: x=0.5 w=6.0 | x=6.8 w=6.0\n"
+        "  • 3-col: x=0.5 w=3.9 | x=4.7 w=3.9 | x=8.9 w=3.9\n"
+        "  • 4-col: x=0.5 w=2.85 | x=3.6 w=2.85 | x=6.7 w=2.85 | x=9.8 w=2.85\n"
+        "Card padding: text inside a card MUST start at card.x+0.2 and end at card.x+card.w-0.2.\n\n"
+
+        "## Step 3 — Color Like a Designer\n"
+        "Default palette (use unless a style profile overrides):\n"
+        "  • Ink:     1A1A2E  (titles, headings, dark backgrounds)\n"
+        "  • Primary: 0F3460  (cards, header bars, primary accents)\n"
+        "  • Vivid:   00B4D8  (stat numbers, highlights, links — the 'wow' color)\n"
+        "  • Warm:    E94560  (alerts, contrast, breaking moments)\n"
+        "  • Surface: F8F9FA  (card fills, table even rows, subtle dividers)\n"
+        "  • Text:    333333  (body text on light), FFFFFF (text on dark)\n"
+        "Rules:\n"
+        "  • Pick at most 3 colors per slide (excluding text/surface).\n"
+        "  • Use Vivid sparingly — only on what you want the eye to land on first.\n"
+        "  • Title slide: dark Ink background. Content slides: light Surface or pure white.\n"
+        "  • Never use bright colors as full-slide backgrounds — they fight the content.\n\n"
+
+        "## Step 4 — Typography Discipline\n"
+        "  • Section eyebrow:  10pt, bold, ALL CAPS, charSpacing: 2, color: Vivid (00B4D8)\n"
+        "  • Slide title:      28-32pt, bold, color: Ink (1A1A2E) — ONE line, no wrapping if possible\n"
+        "  • Subtitle/lede:    14-16pt, regular, color: 555555\n"
+        "  • Body / cells:     11-12pt, color: 333333\n"
+        "  • Stat hero:        48-72pt, bold, color: Vivid or Primary\n"
+        "  • Stat label:       10pt, color: 666666 or 999999\n"
+        "  • Caption / footer: 9pt, italic, color: 999999\n"
+        "Use breakLine:true between text array items. Always set valign for vertical centering inside cards.\n\n"
+
+        "## Step 5 — Tables Must Be Beautiful\n"
+        "Boring tables ruin decks. Yours look like Stripe's docs:\n"
+        "  • colW MUST be set proportional to content (not equal widths).\n"
+        "  • Header row: bold white text on Ink (1A1A2E) or Primary (0F3460) fill, fontSize 11, align center.\n"
+        "  • Data rows alternate: even = F8F9FA, odd = FFFFFF.\n"
+        "  • Cell margin: [4, 8, 4, 8] (top, right, bottom, left in points).\n"
+        "  • Border: thin, color E0E0E0 (almost invisible).\n"
+        "  • Add a 0.08\" tall colored accent bar 0.05\" ABOVE the table for visual lift.\n"
+        "  • One concept per cell — never cram two facts into one cell.\n\n"
+
+        "## Step 6 — Charts With Real Axes\n"
+        "  • addChart with proper catAxisTitle, valAxisTitle, showValue: true.\n"
+        "  • chartColors array length must match the data series count.\n"
+        "  • Use real numbers from the research — never make up data.\n"
+        "  • catGridLine: { style: 'none' } for clean look. Hide value axis line on bar charts.\n\n"
+
+        "## Step 7 — The Completion Bar\n"
+        "Every slide must pass these checks before you ship it:\n"
+        "  ✓ Title is present and under 12 words\n"
+        "  ✓ Every shape has its label INSIDE it (centered, valign:'middle')\n"
+        "  ✓ Every text element fits inside its card (x, y, w, h math is correct)\n"
+        "  ✓ No element extends past x=13.33 or y=7.5\n"
+        "  ✓ No two elements occupy the same x,y,w,h\n"
+        "  ✓ Real data from the research is used — no '[insert metric]' placeholders\n"
+        "  ✓ At least one element draws the eye (a bold stat, a colored accent, an image)\n"
+        "  ✓ The slide answers ONE question, not three\n\n"
+
+        "## What NOT to Do (these are firing offenses)\n"
+        "  ✗ Plain bullet list on a white slide\n"
+        "  ✗ Three giant colored blocks just to fill space\n"
+        "  ✗ A 'Key Insights' label with no actual insight\n"
+        "  ✗ Two cards with identical color and identical text styling — boring\n"
+        "  ✗ Text that runs off the edge of its container\n"
+        "  ✗ Footer bars that span the full width and add nothing\n"
+        "  ✗ Logos floating on top of text\n"
+        "  ✗ A 30pt font in a 1-inch-tall card\n\n"
+
+        "## Pacing Across the Deck (use the slide count)\n"
+        f"This deck has {num_slides} slides. Vary rhythm so it doesn't feel monotonous:\n"
+        "  • Slide 1: Title — dark hero with ONE bold statement. No subtitle clutter.\n"
+        "  • Middle slides: alternate visual styles — table, then chart, then card grid, then diagram.\n"
+        "  • Final slide: a closing 'so what' — the takeaway, the CTA, or the next steps.\n"
+        "  • If the deck has 3 or fewer slides, every slide must be DENSE with insight.\n"
+        "  • If the deck has 10+ slides, use breathing room — one strong visual per slide.\n"
     )
 
     if is_creative:
         sys_parts.append(
-            "\n## Creative Mode ON\n"
-            "Use advanced layouts: tables with zebra striping, process flow shapes, "
-            "stat callout cards, timelines, comparison matrices. No plain bullet lists.\n"
+            "\n# CREATIVE MODE — UNCONVENTIONAL VISUALS\n"
+            "Push beyond the standard playbook. For at least 1 slide, use one of:\n"
+            "  • Pyramid (stacked TRAPEZOID shapes for hierarchy/maturity models)\n"
+            "  • Hub & spoke (central OVAL with radiating lines to outer cards)\n"
+            "  • Quadrant matrix (2×2 with axis labels for strategic positioning)\n"
+            "  • Timeline ribbon (horizontal LINE with circular milestones at intervals)\n"
+            "  • Stacked progress bars (proportional widths showing breakdown of 100%)\n"
+            "  • Comparison diptych (two large side-by-side cards, before/after)\n"
+            "Higher temperature = more inventive layouts. But never sacrifice clarity for cleverness.\n"
         )
 
     sys_parts.append(
-        "\n## Output\n"
-        "Return a JSON array. Each item: {\"slide_number\": N, \"title\": \"...\", \"speaker_notes\": \"...\", \"code\": \"...\"}\n"
-        "In code: you have `slide` and `pres`. Do NOT call pres.addSlide(). No # in hex colors. Fresh {} per call.\n"
+        "\n# OUTPUT FORMAT\n"
+        "Return a JSON array. Each item:\n"
+        "  {\n"
+        "    \"slide_number\": N,\n"
+        "    \"title\": \"<the actual slide title text>\",\n"
+        "    \"speaker_notes\": \"<2-3 sentences a presenter would say>\",\n"
+        "    \"code\": \"<pptxgenjs JavaScript code>\"\n"
+        "  }\n\n"
+        "In `code`:\n"
+        "  • You have `slide` and `pres` already in scope. Do NOT call pres.addSlide().\n"
+        "  • Hex colors are 6 chars, NO leading #. Example: '0F3460' not '#0F3460'.\n"
+        "  • Create a fresh {} for every addText/addShape/addImage/addTable call.\n"
+        "  • Comments inside code are fine (// like this) but keep them minimal.\n"
+        "  • Output ONLY the JSON array. No prose before or after.\n"
     )
 
     messages = [SystemMessage(content="\n".join(sys_parts))]
 
-    # Build human message
+    # Build human message — frame it as a designer brief
     human_text = (
-        f"Create {num_slides} slides for:\n\n"
-        f"Topic: {prompt}\n"
-        f"Audience: {audience}\n\n"
-        f"Outline:\n{outline_text}\n\n"
-        f"Research:\n{summary[:3000]}\n\n"
-        "For each slide, FIRST decide the best layout (table? chart? card grid? flow diagram?) "
-        "then write clean pptxgenjs code using the grid coordinates from the API reference. "
-        "Include specific data from the research — real numbers, tool names, metrics.\n"
+        "## Designer Brief\n\n"
+        f"**Deck topic:** {prompt}\n"
+        f"**Slide count:** {num_slides}\n"
+        f"**Audience:** {audience}\n\n"
+        "## Approved Outline (use this as the slide order)\n"
+        f"{outline_text}\n\n"
+        "## Research Source Material (use REAL data from this — don't invent numbers)\n"
+        f"{summary[:3500]}\n\n"
+        "## Your Process\n"
+        "For each slide, in order:\n"
+        "  1. Read the outline entry for that slide. Identify the ONE idea it must convey.\n"
+        "  2. Pick the best visual format (table / chart / card grid / diagram / hero stat / quadrant / etc).\n"
+        "  3. Pull SPECIFIC numbers, tool names, comparisons, and quotes from the research.\n"
+        "  4. Plan exact x/y/w/h on the grid — every element must fit inside the slide.\n"
+        "  5. Write clean pptxgenjs code that produces a finished, polished slide.\n"
+        "  6. Verify against the Step 7 completion checklist before moving to the next slide.\n\n"
         + (
-            "\nDiagram Mode is ON. For slides where a visual diagram adds clarity (architecture, "
-            "flows, timelines, relationships), use // KROKI_DIAGRAM markers instead of addShape. "
-            "NOT every slide needs a diagram — use tables, charts, and cards for data/stats/comparisons. "
-            "Content quality matters most.\n"
+            "## Diagrams\n"
+            "Diagram Mode is ON. Use `// KROKI_DIAGRAM:<type>` markers ONLY for slides where a "
+            "visual diagram adds genuine clarity — architecture, sequence flows, ER models, gantt charts, "
+            "user journeys. Stat slides, comparison slides, and concept slides should use tables/charts/cards "
+            "instead. Quality over quantity. Pick the right diagram type from the skill reference.\n\n"
             if use_diagram_images else ""
         )
-        + "Output ONLY the JSON array."
+        + "Now design the deck. Output ONLY the JSON array — no prose before or after."
     )
 
     visual_parts = _build_visual_context(state)
