@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Sparkles, FileText, Clock } from "lucide-react";
+import { Search, Sparkles, FileText, Clock, Plus, Upload, Cloud, BookOpen, HardDrive, ChevronRight } from "lucide-react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,18 @@ export default function FindPage() {
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [showSourcesMenu, setShowSourcesMenu] = useState(false);
+
+  // Close sources menu on outside click
+  useEffect(() => {
+    if (!showSourcesMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-sources-popover]")) setShowSourcesMenu(false);
+    };
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [showSourcesMenu]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -60,7 +72,80 @@ export default function FindPage() {
           {/* Search form */}
           <form onSubmit={handleSearch}>
             <div className="rounded-xl border border-border/60 bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-border">
-              <div className="flex items-center gap-2 px-3 py-2">
+              <div className="flex items-center gap-2 px-2 py-2">
+                {/* + button with sources popover */}
+                <div className="relative" data-sources-popover>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSourcesMenu(!showSourcesMenu);
+                    }}
+                    className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
+                      showSourcesMenu
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                    }`}
+                    title="Add a source"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+
+                  <AnimatePresence>
+                    {showSourcesMenu && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute top-full left-0 mt-2 w-72 rounded-xl border border-border bg-popover shadow-xl z-30 overflow-hidden"
+                        data-sources-popover
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-3 py-2 border-b border-border/50">
+                          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Search sources
+                          </p>
+                          <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                            Add a source to expand your search
+                          </p>
+                        </div>
+                        <div className="py-1">
+                          <SourceItem
+                            icon={Upload}
+                            label="Upload file"
+                            description=".pptx, .pdf, .docx"
+                            iconBg="bg-blue-500/10 text-blue-500"
+                          />
+                          <SourceItem
+                            icon={Cloud}
+                            label="Connect SharePoint"
+                            description="Search across your Microsoft 365 sites"
+                            iconBg="bg-violet-500/10 text-violet-500"
+                          />
+                          <SourceItem
+                            icon={BookOpen}
+                            label="Connect Confluence"
+                            description="Atlassian wiki spaces"
+                            iconBg="bg-sky-500/10 text-sky-500"
+                          />
+                          <SourceItem
+                            icon={HardDrive}
+                            label="Connect Google Drive"
+                            description="Slides, Docs, and folders"
+                            iconBg="bg-emerald-500/10 text-emerald-500"
+                          />
+                        </div>
+                        <div className="px-3 py-2 border-t border-border/50 bg-muted/20">
+                          <p className="text-[10px] text-muted-foreground/60">
+                            More integrations coming soon — Notion, Dropbox, Box.
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />
                 <Input
                   type="text"
@@ -242,5 +327,35 @@ export default function FindPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+function SourceItem({
+  icon: Icon,
+  label,
+  description,
+  iconBg,
+}: {
+  icon: React.ElementType;
+  label: string;
+  description: string;
+  iconBg: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-muted/50 transition-colors group text-left"
+    >
+      <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium leading-tight">{label}</p>
+        <p className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5 truncate">
+          {description}
+        </p>
+      </div>
+      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-foreground transition-colors shrink-0" />
+    </button>
   );
 }
