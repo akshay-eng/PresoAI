@@ -46,8 +46,31 @@ model User {
   knowledgeGraphNodes KnowledgeGraphNode[]
   providerKeys       ProviderApiKey[]
   usageRecords       UsageRecord[]
+  sourceFiles        SourceFile[]
 
   @@map("users")
+}
+
+// ─── Find: Source Files ───
+// Uploaded PPTX files indexed for slide-level search.
+// Each file is broken into slides and stored in slide_index (pgvector, raw SQL).
+
+model SourceFile {
+  id          String   @id @default(cuid())
+  userId      String
+  fileName    String
+  s3Key       String
+  fileSize    Int
+  slideCount  Int?
+  status      String   @default("pending") // pending, indexing, ready, failed
+  error       String?
+  createdAt   DateTime @default(now())
+  indexedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("source_files")
 }
 
 // ─── Provider API Keys ───

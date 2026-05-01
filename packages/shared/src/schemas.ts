@@ -32,7 +32,7 @@ export const generatePresentationSchema = z.object({
 export const presignUploadSchema = z.object({
   fileName: z.string().min(1).max(500),
   contentType: z.string().min(1),
-  purpose: z.enum(["template", "reference", "general", "chat-image"]),
+  purpose: z.enum(["template", "reference", "general", "chat-image", "find-source"]),
 });
 
 export const approveJobSchema = z.object({

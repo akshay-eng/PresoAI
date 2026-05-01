@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+
 import structlog
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.models import (
     ExtractThemeRequest,
@@ -15,6 +18,8 @@ from app.models.style_profile import (
 )
 from app.services.extraction import ThemeExtractor, ReferenceExtractor
 from app.services.style_analyzer import StyleAnalyzer
+from app.services.find_indexer import SlideIndexer
+from app.services.find_search import search as find_search
 
 logger = structlog.get_logger()
 
@@ -94,3 +99,74 @@ async def analyze_style(request: AnalyzeStyleRequest) -> AnalyzeStyleResponse:
 @router.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+# ─── Find: slide-level search ───
+
+class IndexPptxRequest(BaseModel):
+    user_id: str
+    source_file_id: str
+    s3_key: str
+    thumbnail_prefix: str
+
+
+class IndexPptxResponse(BaseModel):
+    slide_count: int
+    indexed: int
+
+
+@router.post("/find/index-pptx", response_model=IndexPptxResponse)
+async def index_pptx(request: IndexPptxRequest) -> IndexPptxResponse:
+    indexer = SlideIndexer()
+    try:
+        # Run the heavy CPU/GPU work off the event loop.
+        result = await asyncio.to_thread(
+            indexer.index_pptx,
+            user_id=request.user_id,
+            source_file_id=request.source_file_id,
+            s3_key=request.s3_key,
+            thumbnail_prefix=request.thumbnail_prefix,
+        )
+        return IndexPptxResponse(**result)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Source file not found in S3")
+    except Exception as exc:
+        logger.error("index_pptx_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Indexing failed: {exc}")
+
+
+class SearchRequest(BaseModel):
+    user_id: str
+    query: str
+    limit: int = 24
+
+
+class SearchResultItem(BaseModel):
+    id: str
+    rank: int
+    score: float
+    slide_number: int
+    thumbnail_s3_key: str
+    snippet: str
+    source_file_id: str
+    source_file_name: str
+    dominant_colors: list | None = None
+
+
+class SearchResponse(BaseModel):
+    results: list[SearchResultItem]
+
+
+@router.post("/find/search", response_model=SearchResponse)
+async def search_slides(request: SearchRequest) -> SearchResponse:
+    try:
+        results = await asyncio.to_thread(
+            find_search,
+            user_id=request.user_id,
+            query=request.query,
+            limit=request.limit,
+        )
+        return SearchResponse(results=results)
+    except Exception as exc:
+        logger.error("search_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Search failed: {exc}")

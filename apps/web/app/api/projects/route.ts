@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@slideforge/db";
 import { createProjectSchema } from "@slideforge/shared";
 import { getRequiredSession } from "@/lib/auth";
+import { getPresignedDownloadUrl } from "@/lib/s3";
 import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
@@ -25,12 +26,31 @@ export async function GET(request: NextRequest) {
       include: {
         template: { select: { id: true, name: true, thumbnailUrl: true } },
         _count: { select: { presentations: true, referenceFiles: true } },
+        presentations: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { thumbnails: true, slideCount: true },
+        },
       },
     });
 
     const hasMore = projects.length > limit;
-    const items = hasMore ? projects.slice(0, limit) : projects;
-    const nextCursor = hasMore ? items[items.length - 1]?.id : undefined;
+    const sliced = hasMore ? projects.slice(0, limit) : projects;
+    const nextCursor = hasMore ? sliced[sliced.length - 1]?.id : undefined;
+
+    const items = await Promise.all(
+      sliced.map(async (p) => {
+        const latest = p.presentations?.[0];
+        const keys = Array.isArray(latest?.thumbnails) ? (latest!.thumbnails as string[]) : [];
+        const thumbnailUrls = await Promise.all(
+          keys.slice(0, 8).map(async (k) => {
+            try { return await getPresignedDownloadUrl(k, 3600); } catch { return null; }
+          })
+        );
+        const { presentations: _omit, ...rest } = p;
+        return { ...rest, thumbnailUrls: thumbnailUrls.filter(Boolean) as string[] };
+      })
+    );
 
     return NextResponse.json({
       items,

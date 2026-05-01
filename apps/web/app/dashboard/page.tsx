@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const { data: session } = useSession({ required: true });
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(8);
   const [quickPrompt, setQuickPrompt] = useState("");
   const [audienceType, setAudienceType] = useState("general");
   const [numSlides, setNumSlides] = useState(10);
@@ -94,6 +95,10 @@ export default function DashboardPage() {
     queryFn: () => api.listProjects(undefined, search || undefined),
     enabled: !!session,
   });
+
+  useEffect(() => {
+    setVisibleCount(8);
+  }, [search]);
 
   async function uploadFileToS3(file: File, purpose: "template" | "reference"): Promise<string> {
     const presignRes = await fetch("/api/upload/presign", {
@@ -196,6 +201,7 @@ export default function DashboardPage() {
     createdAt: string;
     template?: { name: string };
     _count: { presentations: number; referenceFiles: number };
+    thumbnailUrls?: string[];
   }>;
 
   async function handlePasteImage(e: React.ClipboardEvent) {
@@ -1011,37 +1017,31 @@ export default function DashboardPage() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {projects.map((project, i) => (
-                  <motion.div
-                    key={project.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.05 + i * 0.03, duration: 0.35, ease }}
-                    className="group text-left rounded-xl border border-border bg-card p-4 transition-colors duration-150 hover:border-primary/30 hover:bg-card/80 relative cursor-pointer"
-                    onClick={() => router.push(`/projects/${project.id}`)}
-                  >
-                    <button
-                      className="absolute top-2.5 right-2.5 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: project.id, name: project.name }); }}
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {projects.slice(0, visibleCount).map((project, i) => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      index={i}
+                      onOpen={() => router.push(`/projects/${project.id}`)}
+                      onDelete={() => setDeleteConfirm({ id: project.id, name: project.name })}
+                    />
+                  ))}
+                </div>
+                {projects.length > visibleCount && (
+                  <div className="flex justify-center mt-6">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setVisibleCount((c) => c + 8)}
+                      className="text-xs"
                     >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                    <p className="text-sm font-medium line-clamp-1 pr-6">{project.name}</p>
-                    <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{project.prompt || "No description"}</p>
-                    <div className="flex items-center gap-1.5 mt-3">
-                      <Badge variant="secondary" className="text-[10px]">{project.audienceType}</Badge>
-                      {project._count.presentations > 0 && (
-                        <Badge variant="outline" className="text-[10px]">{project._count.presentations} deck{project._count.presentations > 1 ? "s" : ""}</Badge>
-                      )}
-                    </div>
-                    <p className="flex items-center gap-1 text-[10px] text-muted-foreground/60 mt-2">
-                      <Clock className="h-2.5 w-2.5" />
-                      {new Date(project.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
+                      See more ({projects.length - visibleCount} remaining)
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </motion.div>
         </div>
@@ -1091,4 +1091,129 @@ export default function DashboardPage() {
       </AnimatePresence>
     </div>
   );
+}
+
+type ProjectCardData = {
+  id: string;
+  name: string;
+  prompt: string;
+  audienceType: string;
+  createdAt: string;
+  _count: { presentations: number; referenceFiles: number };
+  thumbnailUrls?: string[];
+};
+
+function ProjectCard({
+  project,
+  index,
+  onOpen,
+  onDelete,
+}: {
+  project: ProjectCardData;
+  index: number;
+  onOpen: () => void;
+  onDelete: () => void;
+}) {
+  const thumbs = project.thumbnailUrls || [];
+  const [hovered, setHovered] = useState(false);
+  const [slideIdx, setSlideIdx] = useState(0);
+
+  useEffect(() => {
+    if (!hovered || thumbs.length <= 1) return;
+    const t = setInterval(() => {
+      setSlideIdx((s) => (s + 1) % thumbs.length);
+    }, 900);
+    return () => clearInterval(t);
+  }, [hovered, thumbs.length]);
+
+  useEffect(() => {
+    if (!hovered) setSlideIdx(0);
+  }, [hovered]);
+
+  const hasThumbs = thumbs.length > 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.05 + (index % 8) * 0.03, duration: 0.35, ease }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="group text-left relative cursor-pointer rounded-xl border border-border/70 bg-card overflow-hidden transition-all duration-200 hover:border-border hover:shadow-lg hover:-translate-y-0.5"
+      onClick={onOpen}
+    >
+      {/* Thumbnail area */}
+      <div className="relative bg-muted/50 aspect-[4/3] flex items-center justify-center border-b border-border/60">
+        <button
+          className="absolute top-2 right-2 p-1.5 rounded-md bg-background/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-background z-10 shadow-sm"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          aria-label="Delete project"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+
+        {hasThumbs ? (
+          <div className="relative w-[88%] aspect-[16/9] rounded-sm bg-white shadow-sm overflow-hidden ring-1 ring-black/5">
+            {thumbs.map((url, i) => (
+              <img
+                key={url}
+                src={url}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500"
+                style={{ opacity: i === slideIdx ? 1 : 0 }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-muted-foreground/50">
+            <Presentation className="h-7 w-7" strokeWidth={1.25} />
+            <span className="text-[10px] uppercase tracking-wider">No preview yet</span>
+          </div>
+        )}
+
+        {hasThumbs && thumbs.length > 1 && (
+          <div className="absolute bottom-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {thumbs.map((_, i) => (
+              <span
+                key={i}
+                className="h-1 rounded-full transition-all duration-300"
+                style={{
+                  width: i === slideIdx ? 10 : 4,
+                  backgroundColor: i === slideIdx ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.25)",
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3">
+        <p className="text-sm font-semibold line-clamp-1 text-foreground leading-tight">
+          {project.name}
+        </p>
+        <p className="mt-1.5 text-xs text-muted-foreground truncate">
+          Edited {formatRelativeTime(project.createdAt)}
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diffMs = Math.max(0, now - then);
+  const m = Math.floor(diffMs / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} day${d === 1 ? "" : "s"} ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo} month${mo === 1 ? "" : "s"} ago`;
+  const y = Math.floor(d / 365);
+  return `${y} year${y === 1 ? "" : "s"} ago`;
 }

@@ -2,6 +2,7 @@
 
 import { useState, use, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -664,13 +665,14 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top bar */}
           <div className="h-11 border-b border-border/60 flex items-center px-5 gap-2.5 shrink-0">
-            <button
-              onClick={() => router.push("/dashboard")}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            <Link
+              href="/dashboard"
+              prefetch={false}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Projects
-            </button>
+            </Link>
             <span className="text-muted-foreground/30">/</span>
             <input
               className="bg-transparent border-none outline-none text-sm font-medium flex-1 min-w-0"
