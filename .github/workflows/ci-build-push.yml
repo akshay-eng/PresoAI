@@ -115,9 +115,13 @@ jobs:
     if: github.event_name == 'push'
     steps:
       - name: Update K8s Manifests
+        env:
+          MANIFESTS_PAT: ${{ secrets.MANIFESTS_PAT }}
         run: |
           TAG=${GITHUB_SHA::8}
-          git clone https://${{ secrets.MANIFESTS_PAT }}@github.com/akshay-eng/PresoAI_Manifests.git manifests
+          REPO_URL="https://x-access-token:${MANIFESTS_PAT}@github.com/akshay-eng/PresoAI_Manifests.git"
+
+          git clone "$REPO_URL" manifests
           cd manifests
 
           sed -i "s|newTag:.*|newTag: \"$TAG\"|g" overlays/dev/kustomization.yaml
@@ -126,5 +130,9 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add -A
-          git diff --cached --quiet || git commit -m "chore: update image tags to $TAG"
-          git push
+          if git diff --cached --quiet; then
+            echo "no manifest changes"
+            exit 0
+          fi
+          git commit -m "chore: update image tags to $TAG"
+          git push "$REPO_URL" HEAD:main
