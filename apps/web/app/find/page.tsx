@@ -527,8 +527,6 @@ function SourceStatus({ s }: { s: SourceFile }) {
 }
 
 function ResultCard({ result }: { result: SearchResult }) {
-  // Pull the strongest non-neutral dominant color for accent stripe + ghost-sheet tint.
-  const accent = pickAccentColor(result.dominantColors);
   const cleanName = result.sourceFileName.replace(/\.pptx?$/i, "");
 
   return (
@@ -536,101 +534,46 @@ function ResultCard({ result }: { result: SearchResult }) {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="group relative cursor-pointer pt-2 pl-2"
+      className="group relative cursor-pointer rounded-xl border border-border/70 bg-card overflow-hidden shadow-sm transition-all duration-200 hover:shadow-md hover:border-border hover:-translate-y-0.5"
     >
-      {/* Ghost sheet — back-most paper of the stack */}
-      <div
-        className="absolute top-0 left-0 right-3 bottom-3 rounded-xl bg-card border border-border/40 -rotate-1.5 transition-all duration-300 group-hover:-rotate-3 group-hover:-translate-x-1.5 group-hover:-translate-y-1"
-        style={{ boxShadow: `inset 0 0 0 9999px ${accent}08` }}
-      />
-      {/* Ghost sheet — middle */}
-      <div className="absolute top-1 left-1 right-2 bottom-2 rounded-xl bg-card border border-border/50 -rotate-0.5 transition-all duration-300 group-hover:-rotate-1 group-hover:-translate-x-1" />
-
-      {/* Main card */}
-      <div className="relative rounded-xl border border-border/80 bg-card overflow-hidden shadow-sm transition-all duration-300 group-hover:shadow-xl group-hover:-translate-y-0.5">
-        {/* Accent stripe from slide's dominant color */}
-        <div
-          className="h-[3px] w-full transition-all duration-300 group-hover:h-1"
-          style={{ background: `linear-gradient(90deg, ${accent}, ${accent}cc 55%, ${accent}66 100%)` }}
-        />
-
-        {/* Slide thumbnail */}
-        <div className="relative aspect-[16/10] bg-muted/30 p-3 flex items-center justify-center">
-          {result.thumbnailUrl ? (
-            <div className="relative w-full h-full rounded-sm bg-white shadow-md ring-1 ring-black/5 overflow-hidden">
-              <img
-                src={result.thumbnailUrl}
-                alt={`${cleanName} slide ${result.slideNumber}`}
-                loading="lazy"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-            </div>
-          ) : (
-            <FileText className="h-7 w-7 text-muted-foreground/40" />
-          )}
-
-          {/* Slide number — typewriter-style label, top-right */}
-          <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-full bg-foreground/95 text-background px-2 py-0.5 text-[9.5px] font-bold tracking-[0.12em] uppercase shadow-md backdrop-blur-sm">
-            <span className="opacity-55">slide</span>
-            <span className="tabular-nums">{String(result.slideNumber).padStart(2, "0")}</span>
+      {/* Slide thumbnail */}
+      <div className="relative aspect-[16/10] bg-muted/30 p-3 flex items-center justify-center">
+        {result.thumbnailUrl ? (
+          <div className="relative w-full h-full rounded-sm bg-white shadow-md ring-1 ring-black/5 overflow-hidden">
+            <img
+              src={result.thumbnailUrl}
+              alt={`${cleanName} slide ${result.slideNumber}`}
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
           </div>
+        ) : (
+          <FileText className="h-7 w-7 text-muted-foreground/40" />
+        )}
 
-          {/* Hover-only "open" indicator */}
-          <div className="absolute bottom-1.5 right-1.5 h-6 w-6 rounded-full bg-background/95 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-300 shadow-md">
-            <ArrowUpRight className="h-3 w-3" />
-          </div>
+        {/* Slide number — typewriter-style label, top-right */}
+        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-full bg-foreground/95 text-background px-2 py-0.5 text-[9.5px] font-bold tracking-[0.12em] uppercase shadow-md backdrop-blur-sm">
+          <span className="opacity-55">slide</span>
+          <span className="tabular-nums">{String(result.slideNumber).padStart(2, "0")}</span>
         </div>
 
-        {/* Citation footer */}
-        <div className="px-3 py-2.5 border-t border-border/40 bg-card">
-          <div className="flex items-start gap-2">
-            <span
-              className="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded shrink-0"
-              style={{ backgroundColor: `${accent}1f`, color: accent }}
-            >
-              <Layers className="h-2.5 w-2.5" />
-            </span>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold line-clamp-1" title={result.sourceFileName}>
-                {cleanName}
-              </p>
-              {result.snippet && (
-                <p className="text-[10.5px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug italic">
-                  &ldquo;{result.snippet}&rdquo;
-                </p>
-              )}
-            </div>
-          </div>
+        {/* Hover-only "open" indicator */}
+        <div className="absolute bottom-1.5 right-1.5 h-6 w-6 rounded-full bg-background/95 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-200 shadow-md">
+          <ArrowUpRight className="h-3 w-3" />
         </div>
+      </div>
+
+      {/* Citation footer */}
+      <div className="px-3 py-2.5 border-t border-border/40 bg-card flex items-center gap-2">
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded shrink-0 bg-primary/15 text-primary">
+          <Layers className="h-3 w-3" />
+        </span>
+        <p className="text-xs font-semibold line-clamp-1 flex-1" title={result.sourceFileName}>
+          {cleanName}
+        </p>
       </div>
     </motion.div>
   );
-}
-
-function pickAccentColor(palette: SearchResult["dominantColors"]): string {
-  const fallback = "#6366f1";
-  if (!palette || palette.length === 0) return fallback;
-  // Prefer chromatic colors over greys/whites/blacks.
-  for (const c of palette) {
-    const rgb = parseHex(c.hex);
-    if (!rgb) continue;
-    const [r, g, b] = rgb;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const lightness = (max + min) / 2;
-    const saturation = max === min ? 0 : (max - min) / (lightness < 128 ? max + min : 510 - max - min);
-    if (saturation > 0.18 && lightness > 32 && lightness < 230) {
-      return c.hex;
-    }
-  }
-  return palette[0]?.hex || fallback;
-}
-
-function parseHex(hex: string): [number, number, number] | null {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
 function SourceItem({

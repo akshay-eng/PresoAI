@@ -125,35 +125,45 @@ def extract_slide_texts(pptx_path: Path) -> List[str]:
     return out
 
 
-# ── PPTX → PNG renders via LibreOffice ────────────────────────────────────
+# ── PPTX → PNG renders ────────────────────────────────────────────────────
+# LibreOffice's `--convert-to png` only renders the FIRST slide, so we go
+# PPTX → PDF (LibreOffice) → one PNG per page (poppler/pdf2image).
 
 def render_pptx_to_pngs(pptx_path: Path, out_dir: Path) -> List[Path]:
-    """Convert PPTX to one PNG per slide using LibreOffice headless."""
     out_dir.mkdir(parents=True, exist_ok=True)
+
     cmd = [
         settings.libreoffice_path,
         "--headless",
-        "--convert-to", "png",
+        "--convert-to", "pdf",
         "--outdir", str(out_dir),
         str(pptx_path),
     ]
     env = os.environ.copy()
-    env["HOME"] = str(out_dir)  # LibreOffice writes profile here; isolates state
-    logger.info("running_libreoffice", cmd=" ".join(cmd))
+    env["HOME"] = str(out_dir)
+    logger.info("running_libreoffice_pdf", cmd=" ".join(cmd))
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=env)
     if proc.returncode != 0:
         logger.error("libreoffice_failed", stderr=proc.stderr[:500])
-        raise RuntimeError(f"LibreOffice conversion failed: {proc.stderr[:200]}")
-    pngs = sorted(out_dir.glob("*.png"), key=_slide_sort_key)
-    return pngs
+        raise RuntimeError(f"LibreOffice PDF conversion failed: {proc.stderr[:200]}")
 
+    pdf_files = list(out_dir.glob("*.pdf"))
+    if not pdf_files:
+        raise RuntimeError("LibreOffice produced no PDF output")
+    pdf_path = pdf_files[0]
 
-def _slide_sort_key(p: Path) -> int:
-    # LibreOffice typically outputs {basename}.png for single slide and {basename}-{n}.png for multi-slide.
-    # Some versions output {basename}_001.png etc. Pull the last integer in stem.
-    import re
-    nums = re.findall(r"\d+", p.stem)
-    return int(nums[-1]) if nums else 0
+    # PDF → one PNG per page via poppler (pdftoppm under the hood)
+    from pdf2image import convert_from_path
+    pages = convert_from_path(str(pdf_path), dpi=140, fmt="png")
+
+    png_paths: list[Path] = []
+    for i, page in enumerate(pages, start=1):
+        p = out_dir / f"slide-{i:03d}.png"
+        page.save(p, "PNG", optimize=True)
+        png_paths.append(p)
+
+    logger.info("pages_rendered", pages=len(png_paths))
+    return png_paths
 
 
 # ── OCR ───────────────────────────────────────────────────────────────────
