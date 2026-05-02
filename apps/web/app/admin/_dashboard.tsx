@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Activity, Users, FileText, Download, Cpu, Zap, LogOut,
-  TrendingUp, Coins, Wallet, Loader2, Search,
+  TrendingUp, Coins, Wallet, Loader2, Search, Globe, Monitor,
+  Eye, ExternalLink,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -49,6 +50,18 @@ type Timeseries = {
   models: Array<{ model: string; generations: number; tokens: number }>;
 };
 
+type Traffic = {
+  days: string[];
+  series: Array<{ day: string; views: number; visitors: number }>;
+  totalViews: number;
+  totalUniqueVisitors: number;
+  countries: Array<{ country: string; count: number }>;
+  pages: Array<{ path: string; count: number }>;
+  devices: Array<{ device: string; count: number }>;
+  browsers: Array<{ ua: string; count: number }>;
+  referrers: Array<{ referrer: string; count: number }>;
+};
+
 type UserRow = {
   id: string;
   email: string;
@@ -88,6 +101,16 @@ export function AdminDashboard() {
     queryFn: async () => {
       const r = await fetch(`/api/admin/analytics/timeseries?days=${days}`);
       if (!r.ok) throw new Error("Failed to load timeseries");
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const traffic = useQuery<Traffic>({
+    queryKey: ["admin-traffic", days],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/analytics/traffic?days=${days}`);
+      if (!r.ok) throw new Error("Failed to load traffic");
       return r.json();
     },
     refetchInterval: 60_000,
@@ -299,6 +322,126 @@ export function AdminDashboard() {
           )}
         </section>
 
+        {/* Traffic */}
+        <section className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <KpiCard icon={Eye} label="Page views" value={traffic.data ? traffic.data.totalViews : undefined} sub={`Last ${days} days`} />
+            <KpiCard icon={Users} label="Unique visitors" value={traffic.data ? traffic.data.totalUniqueVisitors : undefined} sub={`Last ${days} days · approx`} />
+            <KpiCard
+              icon={Globe}
+              label="Countries"
+              value={traffic.data ? traffic.data.countries.filter((c) => c.country !== "Unknown").length : undefined}
+              sub="With at least 1 visit"
+            />
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5">
+            <Header icon={Eye} title="Page views & visitors" subtitle={`Daily traffic · last ${days} days`} />
+            {traffic.data ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={traffic.data.series} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={shortDay} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip wrapperStyle={{ fontSize: 11 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Area type="monotone" dataKey="views" stroke={COLORS[0]} fill={COLORS[0]} fillOpacity={0.2} name="Views" />
+                  <Area type="monotone" dataKey="visitors" stroke={COLORS[1]} fill={COLORS[1]} fillOpacity={0.15} name="Visitors" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : <Skeleton className="h-[220px]" />}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Top countries */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={Globe} title="Top countries" subtitle="Visits by visitor country" />
+              {traffic.data && traffic.data.countries.length > 0 ? (
+                <ResponsiveContainer width="100%" height={Math.max(200, traffic.data.countries.length * 22)}>
+                  <BarChart data={traffic.data.countries.slice(0, 12)} layout="vertical" margin={{ top: 5, right: 16, left: 30, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 10 }} />
+                    <YAxis dataKey="country" type="category" tick={{ fontSize: 10 }} width={50} interval={0} tickFormatter={(c: string) => countryLabel(c)} />
+                    <Tooltip wrapperStyle={{ fontSize: 11 }} formatter={(v) => formatBig(Number(v))} />
+                    <Bar dataKey="count" fill={COLORS[2]} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-xs text-muted-foreground py-8 text-center">No traffic data yet</p>
+              )}
+            </div>
+
+            {/* Top pages */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={FileText} title="Top pages" subtitle="Most-visited paths" />
+              {traffic.data && traffic.data.pages.length > 0 ? (
+                <ul className="text-xs divide-y divide-border/40 max-h-[280px] overflow-y-auto">
+                  {traffic.data.pages.map((p) => (
+                    <li key={p.path} className="flex items-center justify-between py-1.5">
+                      <span className="font-mono truncate pr-2" title={p.path}>{p.path}</span>
+                      <span className="text-muted-foreground tabular-nums shrink-0">{p.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground py-8 text-center">No page data yet</p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Devices */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={Monitor} title="Devices" subtitle={`Last ${days} days`} />
+              {traffic.data && traffic.data.devices.length > 0 ? (
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie
+                      data={traffic.data.devices}
+                      cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={2}
+                      dataKey="count" nameKey="device"
+                    >
+                      {traffic.data.devices.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 10 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">—</p>}
+            </div>
+
+            {/* Browsers */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={Cpu} title="Browser / OS" subtitle="Top combos" />
+              {traffic.data && traffic.data.browsers.length > 0 ? (
+                <ul className="text-xs divide-y divide-border/40 max-h-[180px] overflow-y-auto">
+                  {traffic.data.browsers.map((b) => (
+                    <li key={b.ua} className="flex items-center justify-between py-1.5">
+                      <span className="truncate pr-2">{b.ua}</span>
+                      <span className="text-muted-foreground tabular-nums">{b.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">—</p>}
+            </div>
+
+            {/* Referrers */}
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={ExternalLink} title="Referrers" subtitle="Where visitors came from" />
+              {traffic.data && traffic.data.referrers.length > 0 ? (
+                <ul className="text-xs divide-y divide-border/40 max-h-[180px] overflow-y-auto">
+                  {traffic.data.referrers.map((r) => (
+                    <li key={r.referrer} className="flex items-center justify-between py-1.5">
+                      <span className="truncate pr-2">{r.referrer}</span>
+                      <span className="text-muted-foreground tabular-nums">{r.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">—</p>}
+            </div>
+          </div>
+        </section>
+
         {/* Find feature */}
         <section className="rounded-xl border border-border bg-card p-5">
           <Header icon={Search} title="Find feature" subtitle="Slide-level semantic search" />
@@ -500,4 +643,15 @@ function formatBig(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+// ISO 3166-1 alpha-2 → flag emoji + label fallback. We just render code+flag.
+function countryLabel(code: string): string {
+  if (!code || code === "Unknown" || code.length !== 2) return code || "??";
+  const A = 0x1f1e6;
+  const flag = String.fromCodePoint(
+    A + code.toUpperCase().charCodeAt(0) - 65,
+    A + code.toUpperCase().charCodeAt(1) - 65,
+  );
+  return `${flag} ${code.toUpperCase()}`;
 }

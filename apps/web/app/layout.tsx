@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { Providers } from "@/components/providers";
+import { RouteTracker } from "@/components/route-tracker";
 import "./globals.css";
 
 // Use local system font stacks — avoids Google Fonts network calls in Docker builds
@@ -41,7 +42,10 @@ export default function RootLayout({
         />
       </head>
       <body className={`${jakarta.className} ${jakarta.variable} ${logoFont.variable}`}>
-        <Providers>{children}</Providers>
+        <Providers>
+          <RouteTracker />
+          {children}
+        </Providers>
       </body>
     </html>
   );
