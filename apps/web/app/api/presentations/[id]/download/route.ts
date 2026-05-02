@@ -25,8 +25,19 @@ export async function GET(
     }
 
     const downloadUrl = await getPresignedDownloadUrl(presentation.s3Key, 600);
+    const fileName = `${presentation.title}.pptx`;
 
-    return NextResponse.json({ downloadUrl, fileName: `${presentation.title}.pptx` });
+    // Log for admin analytics — fire-and-forget, never block download.
+    prisma.downloadEvent.create({
+      data: {
+        userId: session.user.id,
+        presentationId: presentation.id,
+        projectId: presentation.projectId,
+        fileName,
+      },
+    }).catch(() => { /* non-fatal */ });
+
+    return NextResponse.json({ downloadUrl, fileName });
   } catch (err) {
     if ((err as Error).message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

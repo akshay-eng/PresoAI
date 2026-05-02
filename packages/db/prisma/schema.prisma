@@ -51,8 +51,27 @@ model User {
   providerKeys       ProviderApiKey[]
   usageRecords       UsageRecord[]
   sourceFiles        SourceFile[]
+  downloadEvents     DownloadEvent[]
 
   @@map("users")
+}
+
+// ─── Download Events (admin analytics) ───
+// One row per PPTX download (presigned URL fetch via /api/presentations/[id]/download).
+
+model DownloadEvent {
+  id             String   @id @default(cuid())
+  userId         String
+  presentationId String?
+  projectId      String?
+  fileName       String?
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("download_events")
 }
 
 // ─── Find: Source Files ───
