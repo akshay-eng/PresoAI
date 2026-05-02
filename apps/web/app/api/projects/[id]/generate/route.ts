@@ -114,11 +114,21 @@ export async function POST(
       where: { userId_provider: { userId: session.user.id, provider: llmConfig.provider } },
     });
 
+    let userKeyDecryptFailed = false;
     if (userProviderKey?.apiKeyEnc) {
       try {
         apiKey = decrypt(userProviderKey.apiKeyEnc);
         keySource = "user_key";
-      } catch {}
+      } catch (err) {
+        // Likely a stored key encrypted with an old ENCRYPTION_KEY (key
+        // rotation, etc.). Silently falling through would dispatch a job
+        // with no api_key and fail downstream — surface it to the user.
+        userKeyDecryptFailed = true;
+        logger.error(
+          { err: (err as Error).message, provider: llmConfig.provider, userId: session.user.id },
+          "Stored provider API key failed to decrypt"
+        );
+      }
     }
 
     // Fall back to LLM config's own key (for custom models)
@@ -126,10 +136,26 @@ export async function POST(
       try {
         apiKey = decrypt(llmConfig.apiKeyEnc);
         keySource = "user_key";
-      } catch {}
+      } catch (err) {
+        logger.error(
+          { err: (err as Error).message, modelId: llmConfig.id },
+          "LLMConfig api_key failed to decrypt"
+        );
+      }
     }
 
-    // If still no key, it'll use the server's env vars (free tier)
+    // For non-google providers we MUST have a usable key — server only has a
+    // default GOOGLE_API_KEY (free tier). Refuse the job clearly so the user
+    // can re-enter the key in Settings rather than seeing a Pydantic crash
+    // from the python-agent.
+    if (!apiKey && llmConfig.provider !== "google") {
+      const msg = userKeyDecryptFailed
+        ? `Your stored ${llmConfig.provider} API key could not be decrypted (likely from before a key rotation). Re-add it in Settings → API Keys.`
+        : `No ${llmConfig.provider} API key configured. Add one in Settings → API Keys, or pick a Gemini model.`;
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+
+    // If no key for google specifically, the server env GOOGLE_API_KEY will be used by python-agent.
 
     const langGraphThreadId = `job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 

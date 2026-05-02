@@ -23,16 +23,10 @@ export async function GET() {
     const configuredProviders = userKeys.map((k) => k.provider);
     const hasOwnKeys = configuredProviders.length > 0;
 
-    // Determine which providers to show
-    let allowedProviders: string[];
-
-    if (!hasOwnKeys) {
-      // Free tier: only Gemini models
-      allowedProviders = ["google"];
-    } else {
-      // Show models for configured providers only
-      allowedProviders = configuredProviders;
-    }
+    // Always include "google" — server has GOOGLE_API_KEY so every user
+    // can use the free Gemini models even when they add their own keys
+    // for other providers.
+    const allowedProviders = Array.from(new Set(["google", ...configuredProviders]));
 
     // Fetch models filtered by provider
     const models = await prisma.lLMConfig.findMany({
