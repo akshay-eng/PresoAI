@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+
+const AdminWorldMap = dynamic(() => import("./_world-map"), {
+  ssr: false,
+  loading: () => <div className="h-[360px] grid place-items-center text-xs text-muted-foreground">Loading map…</div>,
+});
 import {
   Activity, Users, FileText, Download, Cpu, Zap, LogOut,
   TrendingUp, Coins, Wallet, Loader2, Search, Globe, Monitor,
@@ -352,8 +358,18 @@ export function AdminDashboard() {
             ) : <Skeleton className="h-[220px]" />}
           </div>
 
+          {/* World map */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <Header icon={Globe} title="Where visitors are coming from" subtitle="Choropleth by country, last selected window" />
+            {traffic.data ? (
+              <AdminWorldMap countries={traffic.data.countries} />
+            ) : (
+              <Skeleton className="h-[360px]" />
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Top countries */}
+            {/* Top countries — precise ranking next to the map */}
             <div className="rounded-xl border border-border bg-card p-5">
               <Header icon={Globe} title="Top countries" subtitle="Visits by visitor country" />
               {traffic.data && traffic.data.countries.length > 0 ? (

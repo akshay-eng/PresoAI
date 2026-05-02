@@ -31,6 +31,8 @@
     "@slideforge/queue": "workspace:*",
     "@slideforge/shared": "workspace:*",
     "@tanstack/react-query": "^5.59.0",
+    "@visa/charts-react": "^5.1.0",
+    "@visa/world-map": "^7.1.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.18.0",
     "canvas": "^3.2.3",
