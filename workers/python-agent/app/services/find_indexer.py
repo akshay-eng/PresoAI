@@ -106,22 +106,34 @@ def embed_clip_text(text: str) -> np.ndarray:
 # ── PPTX → slide text ──────────────────────────────────────────────────────
 
 def extract_slide_texts(pptx_path: Path) -> List[str]:
-    prs = Presentation(str(pptx_path))
+    """Extract per-slide text via python-pptx. Returns [] on any parse error
+    (corrupt ZIP / bad CRC / embedded malformed font / etc.) so the caller
+    can fall back to OCR-only text extraction from the rendered PNGs.
+    """
+    try:
+        prs = Presentation(str(pptx_path))
+    except Exception as exc:
+        logger.warning("pptx_text_extraction_failed", error=str(exc))
+        return []
+
     out: List[str] = []
-    for slide in prs.slides:
-        parts: List[str] = []
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                for para in shape.text_frame.paragraphs:
-                    for run in para.runs:
-                        if run.text and run.text.strip():
-                            parts.append(run.text.strip())
-        # Notes
-        if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
-            note = slide.notes_slide.notes_text_frame.text
-            if note and note.strip():
-                parts.append(note.strip())
-        out.append(" ".join(parts))
+    try:
+        for slide in prs.slides:
+            parts: List[str] = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        for run in para.runs:
+                            if run.text and run.text.strip():
+                                parts.append(run.text.strip())
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                note = slide.notes_slide.notes_text_frame.text
+                if note and note.strip():
+                    parts.append(note.strip())
+            out.append(" ".join(parts))
+    except Exception as exc:
+        logger.warning("pptx_slide_iteration_failed", error=str(exc), partial=len(out))
+        # Return what we managed to read; caller pads/truncates against PNG count.
     return out
 
 
