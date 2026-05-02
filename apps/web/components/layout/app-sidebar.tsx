@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Home, FolderOpen, LogOut, FileStack, PenTool, Settings, Plus, Search } from "lucide-react";
+import { Home, FolderOpen, LogOut, FileStack, PenTool, Settings, Plus, Search, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PresoLogoIcon } from "@/components/preso-logo";
@@ -35,6 +35,7 @@ export function AppSidebar({ onOpenPanel, activePanel }: AppSidebarProps) {
         <SidebarItem icon={Home} label="Home" active={pathname === "/dashboard"} onClick={() => router.push("/dashboard")} />
         <SidebarItem icon={FolderOpen} label="Projects" active={pathname?.startsWith("/projects")} onClick={() => router.push("/dashboard")} />
         <SidebarItem icon={Search} label="Find" active={pathname === "/find"} onClick={() => router.push("/find")} />
+        <SidebarItem icon={Mic} label="Voice" active={pathname === "/voice-over"} onClick={() => router.push("/voice-over")} />
 
         <div className="w-6 h-px bg-border/40 my-2" />
         <SidebarItem icon={FileStack} label="Files" active={activePanel === "files"} onClick={() => onOpenPanel?.("files")} />
