@@ -55,10 +55,14 @@ export function verifyToken(token: string | undefined | null): boolean {
 
 export async function setAdminCookie() {
   const jar = await cookies();
+  // Only mark Secure if the deployment is genuinely HTTPS — opt-in via env.
+  // Browsers silently drop Secure cookies on plain HTTP, which would cause
+  // a successful POST /admin/login to NOT actually persist the session.
+  const useSecure = process.env.ADMIN_COOKIE_SECURE === "true";
   jar.set(COOKIE_NAME, buildSignedToken(), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: useSecure,
     path: "/",
     maxAge: COOKIE_TTL_SECONDS,
   });
