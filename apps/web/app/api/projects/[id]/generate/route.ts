@@ -44,8 +44,16 @@ export async function POST(
     });
     const hasOwnKeys = userKeys.length > 0;
 
-    // If no own keys, enforce free tier limit
-    if (!hasOwnKeys) {
+    // Coupon-redeemed users skip free tier limits and ride on the server's
+    // default Gemini key (resolved via env vars further down).
+    const userRow = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { couponCode: true },
+    });
+    const hasCoupon = !!userRow?.couponCode;
+
+    // If no own keys AND no coupon, enforce free tier limit
+    if (!hasOwnKeys && !hasCoupon) {
       let freeTier = await prisma.freeTierSession.findUnique({
         where: { userId: session.user.id },
       });

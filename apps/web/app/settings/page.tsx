@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Shield, Loader2, Eye, EyeOff, Trash2, Zap, CheckCircle, Key } from "lucide-react";
+import { ArrowLeft, Shield, Loader2, Eye, EyeOff, Trash2, Zap, CheckCircle, Key, Gift } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,8 @@ export default function SettingsPage() {
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [validating, setValidating] = useState<string | null>(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [redeemingCoupon, setRedeemingCoupon] = useState(false);
 
   const passwordMutation = useMutation({
     mutationFn: async () => {
@@ -54,7 +56,7 @@ export default function SettingsPage() {
     },
   });
 
-  const { data: usage } = useQuery({
+  const { data: usage, refetch: refetchUsage } = useQuery({
     queryKey: ["usage"],
     queryFn: async () => {
       const r = await fetch("/api/settings/usage");
@@ -62,6 +64,34 @@ export default function SettingsPage() {
       return r.json();
     },
   });
+
+  async function handleRedeemCoupon() {
+    const code = couponInput.trim();
+    if (!code) return;
+    setRedeemingCoupon(true);
+    try {
+      const res = await fetch("/api/coupon/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to redeem coupon");
+      } else if (data.alreadyRedeemed) {
+        toast.success("You're already on the unlimited plan");
+        setCouponInput("");
+        refetchUsage();
+      } else {
+        toast.success("Coupon redeemed — unlimited access unlocked");
+        setCouponInput("");
+        refetchUsage();
+      }
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+    setRedeemingCoupon(false);
+  }
 
   async function handleSaveKey(provider: string) {
     const apiKey = keyInputs[provider];
@@ -114,18 +144,28 @@ export default function SettingsPage() {
             <div className="px-5 py-4">
               {usage ? (
                 <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between text-xs mb-1.5">
-                      <span className="text-muted-foreground">Free tier ({usage.freeTier.used}/{usage.freeTier.max})</span>
-                      <span className="text-muted-foreground">
-                        {usage.freeTier.remaining > 0
-                          ? `${usage.freeTier.remaining} left`
-                          : `Resets ${new Date(usage.freeTier.windowEnd).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-                        }
-                      </span>
+                  {usage.coupon?.redeemed ? (
+                    <div className="rounded-lg bg-primary/10 border border-primary/30 px-3 py-2.5 flex items-center gap-2">
+                      <Gift className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <p className="text-xs">
+                        <span className="font-semibold">Unlimited plan active</span>
+                        <span className="text-muted-foreground"> — coupon <span className="font-mono">{usage.coupon.code}</span> redeemed</span>
+                      </p>
                     </div>
-                    <Progress value={(usage.freeTier.used / Math.max(usage.freeTier.max, 1)) * 100} />
-                  </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1.5">
+                        <span className="text-muted-foreground">Free tier ({usage.freeTier.used}/{usage.freeTier.max})</span>
+                        <span className="text-muted-foreground">
+                          {usage.freeTier.remaining > 0
+                            ? `${usage.freeTier.remaining} left`
+                            : `Resets ${new Date(usage.freeTier.windowEnd).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                          }
+                        </span>
+                      </div>
+                      <Progress value={(usage.freeTier.used / Math.max(usage.freeTier.max, 1)) * 100} />
+                    </div>
+                  )}
                   <div className="flex gap-3">
                     <div className="flex-1 rounded-lg bg-muted/40 px-3 py-2.5">
                       <p className="text-[10px] text-muted-foreground">Tokens used</p>
@@ -143,6 +183,65 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+              )}
+            </div>
+          </div>
+
+          {/* Coupon */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/40">
+              <div className="flex items-center gap-2">
+                <Gift className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold">Coupon code</h2>
+              </div>
+            </div>
+            <div className="px-5 py-4">
+              {usage?.coupon?.redeemed ? (
+                <div className="flex items-start gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+                    <CheckCircle className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">
+                      {usage.coupon.code} <span className="text-[10px] text-muted-foreground font-normal">redeemed</span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Unlimited generations on the bundled plan. No rate limits.
+                      {usage.coupon.redeemedAt && (
+                        <> Activated {new Date(usage.coupon.redeemedAt).toLocaleDateString()}.</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-[11px] text-muted-foreground mb-2.5">
+                    Have a coupon? Redeem it to unlock unlimited generations without adding your own API key.
+                  </p>
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); handleRedeemCoupon(); }}
+                    className="flex gap-2"
+                  >
+                    <Input
+                      type="text"
+                      placeholder="Enter coupon"
+                      value={couponInput}
+                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                      className="text-xs h-8 font-mono uppercase tracking-wider"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={redeemingCoupon}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      className="h-8 shrink-0 text-xs"
+                      disabled={!couponInput.trim() || redeemingCoupon}
+                    >
+                      {redeemingCoupon ? <Loader2 className="h-3 w-3 animate-spin" /> : "Redeem"}
+                    </Button>
+                  </form>
+                </>
               )}
             </div>
           </div>

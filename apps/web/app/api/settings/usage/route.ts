@@ -10,6 +10,12 @@ export async function GET() {
     const session = await getRequiredSession();
     const userId = session.user.id;
 
+    // Coupon-redeemed users get unlimited free generations (handled in generate route too)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { couponCode: true, couponRedeemedAt: true },
+    });
+
     // Get or create free tier session
     let freeTier = await prisma.freeTierSession.findUnique({ where: { userId } });
 
@@ -72,6 +78,11 @@ export async function GET() {
         remaining: freeRemaining,
         windowEnd: windowEndTime.toISOString(),
         windowHours: freeTier.windowHours,
+      },
+      coupon: {
+        redeemed: !!user?.couponCode,
+        code: user?.couponCode ?? null,
+        redeemedAt: user?.couponRedeemedAt ?? null,
       },
       hasOwnKeys,
       configuredProviders: userKeys.map((k) => k.provider),
