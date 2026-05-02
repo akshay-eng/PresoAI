@@ -27,16 +27,17 @@ export default function AdminWorldMap({ countries }: Props) {
     })
     .filter((x): x is { ID: number; Name: string; Value: number; "Country Code": string } => x !== null);
 
-  if (data.length === 0) {
-    return (
-      <div className="grid place-items-center h-[320px] text-xs text-muted-foreground">
-        No mapped traffic yet — visits will appear once tracking has data.
-      </div>
-    );
-  }
-
-  // Visa's color palette is locked into a small set; pass a custom one from CSS-friendly hexes.
-  const colorPalette = ["#e0e7ff", "#a5b4fc", "#6366f1", "#4338ca", "#312e81"];
+  // Light → dark sequential. Higher traffic → darker country.
+  // Empty data renders the world map with no countries highlighted (all
+  // get the default unselected fill, no error placeholder).
+  const colorPalette = [
+    "#eef2ff",
+    "#c7d2fe",
+    "#818cf8",
+    "#4f46e5",
+    "#3730a3",
+    "#1e1b4b",
+  ];
 
   return (
     <WorldMap

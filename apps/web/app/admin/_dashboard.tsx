@@ -577,9 +577,9 @@ function KpiCard({ icon: Icon, label, value, sub }: {
         <Icon className="h-3 w-3" />
         <span className="text-[10px] uppercase tracking-wider">{label}</span>
       </div>
-      <p className="text-xl font-bold tabular-nums mt-1">
-        {value ?? <Skeleton className="h-6 w-16 inline-block" />}
-      </p>
+      <div className="text-xl font-bold tabular-nums mt-1">
+        {value ?? <Skeleton className="h-6 w-16" />}
+      </div>
       {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
     </div>
   );
