@@ -34,6 +34,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { FileUpload, FileListItem } from "@/components/project/file-upload";
+import { FilePicker } from "@/components/project/file-picker";
 import { ThemePreview } from "@/components/project/theme-preview";
 import { LLMSelector } from "@/components/project/llm-selector";
 import { StyleProfileSelector } from "@/components/project/style-profile-selector";
@@ -1263,6 +1264,28 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         accept={{ "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"] }}
                         onUploadComplete={() => queryClient.invalidateQueries({ queryKey: ["project", id] })}
                       />
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
+                        <div className="flex-1 h-px bg-border/40" />
+                        <span>or</span>
+                        <div className="flex-1 h-px bg-border/40" />
+                      </div>
+                      <FilePicker
+                        allowedKinds={["pptx"]}
+                        buttonLabel="Choose from your uploads"
+                        onPick={async (item) => {
+                          const r = await fetch(`/api/projects/${id}/template`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ s3Key: item.s3Key }),
+                          });
+                          if (!r.ok) {
+                            toast.error("Failed to attach template");
+                            return;
+                          }
+                          toast.success(`Using ${item.fileName} as template`);
+                          queryClient.invalidateQueries({ queryKey: ["project", id] });
+                        }}
+                      />
                       {p?.template && (
                         <div className="space-y-2 border border-border rounded-lg p-3">
                           <div className="flex items-center justify-between text-xs">
@@ -1285,6 +1308,32 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         projectId={id}
                         purpose="reference"
                         onUploadComplete={() => queryClient.invalidateQueries({ queryKey: ["project", id] })}
+                      />
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground/60">
+                        <div className="flex-1 h-px bg-border/40" />
+                        <span>or</span>
+                        <div className="flex-1 h-px bg-border/40" />
+                      </div>
+                      <FilePicker
+                        buttonLabel="Choose from your uploads"
+                        onPick={async (item) => {
+                          const r = await fetch(`/api/projects/${id}/references`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              s3Key: item.s3Key,
+                              fileName: item.fileName,
+                              fileType: item.mimeType || item.fileName.split(".").pop() || "",
+                              fileSize: item.fileSize || 1,
+                            }),
+                          });
+                          if (!r.ok) {
+                            toast.error("Failed to attach reference");
+                            return;
+                          }
+                          toast.success(`Added ${item.fileName} as reference`);
+                          queryClient.invalidateQueries({ queryKey: ["project", id] });
+                        }}
                       />
                       <div className="space-y-1.5">
                         {p?.referenceFiles?.map((f) => (

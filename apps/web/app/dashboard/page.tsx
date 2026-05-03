@@ -19,6 +19,7 @@ import { GlobalPanels } from "@/components/global-panels";
 import { LottieAnimation } from "@/components/lottie-animation";
 import { api } from "@/lib/api-client";
 import { StyleProfileViewer } from "@/components/project/style-profile-viewer";
+import { FilePicker } from "@/components/project/file-picker";
 import { useChatStore } from "@/lib/stores/chat-store";
 
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -47,8 +48,8 @@ export default function DashboardPage() {
   const [deletingStyle, setDeletingStyle] = useState(false);
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [templateFile, setTemplateFile] = useState<{ file: File; key: string } | null>(null);
-  const [referenceFiles, setReferenceFiles] = useState<Array<{ file: File; key: string }>>([]);
+  const [templateFile, setTemplateFile] = useState<{ key: string; fileName: string } | null>(null);
+  const [referenceFiles, setReferenceFiles] = useState<Array<{ key: string; fileName: string; fileType: string; fileSize: number }>>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -144,9 +145,9 @@ export default function DashboardPage() {
         try {
           await api.addReference(p.id, {
             s3Key: ref.key,
-            fileName: ref.file.name,
-            fileType: ref.file.type || "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            fileSize: ref.file.size,
+            fileName: ref.fileName,
+            fileType: ref.fileType || "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            fileSize: ref.fileSize,
           });
         } catch { /* continue */ }
       }
@@ -496,31 +497,38 @@ export default function DashboardPage() {
                             {templateFile ? (
                               <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/50 rounded-lg px-2 py-1.5">
                                 <FileText className="h-3 w-3 shrink-0" />
-                                <span className="truncate flex-1">{templateFile.file.name}</span>
+                                <span className="truncate flex-1">{templateFile.fileName}</span>
                                 <button type="button" onClick={() => setTemplateFile(null)} className="text-muted-foreground/60 hover:text-foreground">
                                   <X className="h-3 w-3" />
                                 </button>
                               </div>
                             ) : (
-                              <label className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/30 hover:bg-secondary/50 rounded-lg px-2 py-1.5 cursor-pointer transition-colors">
-                                <Upload className="h-3 w-3" />
-                                Upload .pptx template
-                                <input
-                                  type="file"
-                                  accept=".pptx"
-                                  className="hidden"
-                                  onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    setUploadingAttachment(true);
-                                    try {
-                                      const key = await uploadFileToS3(file, "template");
-                                      setTemplateFile({ file, key });
-                                    } catch { toast.error("Template upload failed"); }
-                                    setUploadingAttachment(false);
-                                  }}
+                              <div className="space-y-1">
+                                <label className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/30 hover:bg-secondary/50 rounded-lg px-2 py-1.5 cursor-pointer transition-colors">
+                                  <Upload className="h-3 w-3" />
+                                  Upload .pptx template
+                                  <input
+                                    type="file"
+                                    accept=".pptx"
+                                    className="hidden"
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      setUploadingAttachment(true);
+                                      try {
+                                        const key = await uploadFileToS3(file, "template");
+                                        setTemplateFile({ key, fileName: file.name });
+                                      } catch { toast.error("Template upload failed"); }
+                                      setUploadingAttachment(false);
+                                    }}
+                                  />
+                                </label>
+                                <FilePicker
+                                  allowedKinds={["pptx"]}
+                                  buttonLabel="Or pick from your uploads"
+                                  onPick={(item) => setTemplateFile({ key: item.s3Key, fileName: item.fileName })}
                                 />
-                              </label>
+                              </div>
                             )}
                           </div>
 
@@ -534,7 +542,7 @@ export default function DashboardPage() {
                                 {referenceFiles.map((ref, i) => (
                                   <div key={ref.key} className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/50 rounded-lg px-2 py-1">
                                     <FileText className="h-3 w-3 shrink-0" />
-                                    <span className="truncate flex-1">{ref.file.name}</span>
+                                    <span className="truncate flex-1">{ref.fileName}</span>
                                     <button type="button" onClick={() => setReferenceFiles((prev) => prev.filter((_, j) => j !== i))} className="text-muted-foreground/60 hover:text-foreground">
                                       <X className="h-3 w-3" />
                                     </button>
@@ -542,25 +550,42 @@ export default function DashboardPage() {
                                 ))}
                               </div>
                             )}
-                            <label className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/30 hover:bg-secondary/50 rounded-lg px-2 py-1.5 cursor-pointer transition-colors">
-                              <Upload className="h-3 w-3" />
-                              {uploadingAttachment ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add .pptx reference"}
-                              <input
-                                type="file"
-                                accept=".pptx,.pdf,.docx"
-                                className="hidden"
-                                onChange={async (e) => {
-                                  const file = e.target.files?.[0];
-                                  if (!file) return;
-                                  setUploadingAttachment(true);
-                                  try {
-                                    const key = await uploadFileToS3(file, "reference");
-                                    setReferenceFiles((prev) => [...prev, { file, key }]);
-                                  } catch { toast.error("Reference upload failed"); }
-                                  setUploadingAttachment(false);
+                            <div className="space-y-1">
+                              <label className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary/30 hover:bg-secondary/50 rounded-lg px-2 py-1.5 cursor-pointer transition-colors">
+                                <Upload className="h-3 w-3" />
+                                {uploadingAttachment ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add .pptx reference"}
+                                <input
+                                  type="file"
+                                  accept=".pptx,.pdf,.docx"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    setUploadingAttachment(true);
+                                    try {
+                                      const key = await uploadFileToS3(file, "reference");
+                                      setReferenceFiles((prev) => [...prev, { key, fileName: file.name, fileType: file.type, fileSize: file.size }]);
+                                    } catch { toast.error("Reference upload failed"); }
+                                    setUploadingAttachment(false);
+                                  }}
+                                />
+                              </label>
+                              <FilePicker
+                                buttonLabel="Or pick from your uploads"
+                                onPick={(item) => {
+                                  if (referenceFiles.some((r) => r.key === item.s3Key)) {
+                                    toast.info("Already added");
+                                    return;
+                                  }
+                                  setReferenceFiles((prev) => [...prev, {
+                                    key: item.s3Key,
+                                    fileName: item.fileName,
+                                    fileType: item.mimeType,
+                                    fileSize: item.fileSize || 1,
+                                  }]);
                                 }}
                               />
-                            </label>
+                            </div>
                           </div>
                         </div>
                       </motion.div>
