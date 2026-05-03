@@ -138,7 +138,28 @@ export async function GET() {
       });
     }
 
+    // First-slide thumbnails for indexed Find sources (slide_index lives outside Prisma).
+    const sourceIds = sourceFiles.map((s) => s.id);
+    const firstSlideKeyByFile = new Map<string, string>();
+    if (sourceIds.length > 0) {
+      try {
+        const rows = await prisma.$queryRaw<Array<{ sourceFileId: string; thumbnailS3Key: string }>>`
+          SELECT "sourceFileId", "thumbnailS3Key"
+          FROM slide_index
+          WHERE "sourceFileId" = ANY(${sourceIds}::text[]) AND "slideNumber" = 1
+        `;
+        for (const r of rows) firstSlideKeyByFile.set(r.sourceFileId, r.thumbnailS3Key);
+      } catch (e) {
+        logger.warn({ err: (e as Error).message }, "slide_index lookup failed");
+      }
+    }
+
     for (const s of sourceFiles) {
+      const thumbKey = firstSlideKeyByFile.get(s.id);
+      let previewUrl: string | null = null;
+      if (thumbKey) {
+        try { previewUrl = await getPresignedDownloadUrl(thumbKey, 3600); } catch { previewUrl = null; }
+      }
       items.push({
         id: `source:${s.id}`,
         source: "source-file",
@@ -148,7 +169,7 @@ export async function GET() {
         mimeType: guessMimeFromKey(s.s3Key),
         kind: classify(s.fileName, guessMimeFromKey(s.s3Key)),
         createdAt: s.createdAt.toISOString(),
-        previewUrl: null,
+        previewUrl,
         linkedTo: { type: "find", id: s.id, name: "Find sources" },
         canDelete: true,
       });

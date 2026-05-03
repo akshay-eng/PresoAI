@@ -35,8 +35,7 @@ type UploadItem = {
 
 type ListResponse = { items: UploadItem[] };
 
-const KIND_FILTERS: Array<{ id: "all" | UploadItem["kind"]; label: string }> = [
-  { id: "all", label: "All" },
+const KIND_FILTERS: Array<{ id: UploadItem["kind"]; label: string }> = [
   { id: "image", label: "Images" },
   { id: "pptx", label: "Presentations" },
   { id: "document", label: "Documents" },
@@ -80,17 +79,17 @@ function KindIcon({ kind, className }: { kind: UploadItem["kind"]; className?: s
 
 function kindAccent(kind: UploadItem["kind"]): string {
   switch (kind) {
-    case "image": return "from-emerald-500/20 to-emerald-500/5 text-emerald-500";
-    case "pptx": return "from-orange-500/20 to-orange-500/5 text-orange-500";
-    case "document": return "from-sky-500/20 to-sky-500/5 text-sky-500";
-    case "pdf": return "from-red-500/20 to-red-500/5 text-red-500";
-    default: return "from-zinc-500/20 to-zinc-500/5 text-zinc-400";
+    case "image": return "from-emerald-500/15 to-emerald-500/5 text-emerald-500";
+    case "pptx": return "from-primary/15 to-primary/5 text-primary";
+    case "document": return "from-sky-500/15 to-sky-500/5 text-sky-500";
+    case "pdf": return "from-red-500/15 to-red-500/5 text-red-500";
+    default: return "from-zinc-500/15 to-zinc-500/5 text-zinc-400";
   }
 }
 
 export default function UploadsPage() {
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState<(typeof KIND_FILTERS)[number]["id"]>("all");
+  const [filter, setFilter] = useState<UploadItem["kind"]>("pptx");
   const [search, setSearch] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState<{ name: string; progress: number } | null>(null);
@@ -107,8 +106,7 @@ export default function UploadsPage() {
 
   const items = data?.items ?? [];
   const filtered = useMemo(() => {
-    let out = items;
-    if (filter !== "all") out = out.filter((i) => i.kind === filter);
+    let out = items.filter((i) => i.kind === filter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       out = out.filter((i) => i.fileName.toLowerCase().includes(q));
@@ -117,7 +115,7 @@ export default function UploadsPage() {
   }, [items, filter, search]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: items.length };
+    const c: Record<string, number> = {};
     for (const i of items) c[i.kind] = (c[i.kind] || 0) + 1;
     return c;
   }, [items]);
@@ -316,12 +314,12 @@ export default function UploadsPage() {
                   >
                     {/* Preview / icon */}
                     <div className={`aspect-[4/3] relative bg-gradient-to-br ${kindAccent(item.kind)} flex items-center justify-center`}>
-                      {item.kind === "image" && item.previewUrl ? (
+                      {item.previewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={item.previewUrl}
                           alt={item.fileName}
-                          className="absolute inset-0 w-full h-full object-cover"
+                          className={`absolute inset-0 w-full h-full ${item.kind === "image" ? "object-cover" : "object-contain bg-background"}`}
                           loading="lazy"
                         />
                       ) : (
