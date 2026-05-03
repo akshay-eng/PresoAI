@@ -2,6 +2,9 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -60,6 +63,41 @@ export async function getPresignedDownloadUrl(
     Key: key,
   });
   return getSignedUrl(presignClient, command, { expiresIn });
+}
+
+export async function deleteS3Object(key: string): Promise<void> {
+  await s3Client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+}
+
+export async function listS3ObjectsByPrefix(
+  prefix: string
+): Promise<Array<{ key: string; size: number; lastModified: Date | undefined }>> {
+  const out: Array<{ key: string; size: number; lastModified: Date | undefined }> = [];
+  let continuationToken: string | undefined;
+  do {
+    const res = await s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      })
+    );
+    for (const obj of res.Contents ?? []) {
+      if (!obj.Key) continue;
+      out.push({ key: obj.Key, size: obj.Size ?? 0, lastModified: obj.LastModified });
+    }
+    continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return out;
+}
+
+export async function s3ObjectExists(key: string): Promise<boolean> {
+  try {
+    await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export { s3Client, BUCKET };

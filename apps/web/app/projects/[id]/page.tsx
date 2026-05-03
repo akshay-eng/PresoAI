@@ -2,7 +2,6 @@
 
 import { useState, use, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -665,14 +664,14 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top bar */}
           <div className="h-11 border-b border-border/60 flex items-center px-5 gap-2.5 shrink-0">
-            <Link
-              href="/dashboard"
-              prefetch={false}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard")}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer -mx-1 px-1 py-1 rounded hover:bg-muted/40"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Projects
-            </Link>
+            </button>
             <span className="text-muted-foreground/30">/</span>
             <input
               className="bg-transparent border-none outline-none text-sm font-medium flex-1 min-w-0"
@@ -713,8 +712,8 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                   className={msg.role === "user" ? "flex justify-end" : ""}
                 >
                   {msg.role === "user" ? (
-                    <div className="bg-primary/10 border border-primary/15 rounded-2xl rounded-tr-sm px-4 py-3 max-w-[85%]">
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
+                    <div className="bg-primary/10 border border-primary/15 rounded-2xl rounded-tr-sm px-4 py-3 max-w-[85%] min-w-0">
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
                       {msg.metadata && (
                         <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground">
                           {msg.metadata.audienceType && <span>{msg.metadata.audienceType} audience</span>}
@@ -1024,6 +1023,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                       className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground/40 min-w-0 py-2 resize-none overflow-hidden leading-relaxed"
                       rows={1}
                       style={{ maxHeight: 200 }}
+                      maxLength={5000}
                       onBlur={() => {
                         if (hasSubmitted && prompt !== p?.prompt) updateMutation.mutate({ prompt });
                       }}
@@ -1078,17 +1078,24 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         Diagrams
                       </button>
                     </div>
-                    <button
-                      type="submit"
-                      disabled={!prompt.trim() || (hasSubmitted && (!selectedModelId || isGenerating)) || generateMutation.isPending}
-                      className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors"
-                    >
-                      {(generateMutation.isPending || isGenerating) ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Send className="h-3.5 w-3.5" />
+                    <div className="flex items-center gap-2">
+                      {prompt.length > 4500 && (
+                        <span className={`text-[11px] tabular-nums ${prompt.length >= 5000 ? "text-destructive" : "text-muted-foreground"}`}>
+                          {prompt.length}/5000
+                        </span>
                       )}
-                    </button>
+                      <button
+                        type="submit"
+                        disabled={!prompt.trim() || (hasSubmitted && (!selectedModelId || isGenerating)) || generateMutation.isPending}
+                        className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors"
+                      >
+                        {(generateMutation.isPending || isGenerating) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </form>

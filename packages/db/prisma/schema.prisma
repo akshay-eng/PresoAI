@@ -52,8 +52,31 @@ model User {
   usageRecords       UsageRecord[]
   sourceFiles        SourceFile[]
   downloadEvents     DownloadEvent[]
+  userUploads        UserUpload[]
 
   @@map("users")
+}
+
+// ─── User Uploads (Files library) ───
+// One row per direct upload from the /uploads page (purpose: "general"). The
+// existing Template/ReferenceFile/SourceFile/StyleProfileSource tables already
+// track their own uploads — the Uploads page UNIONs across all of them and
+// surfaces this table for files that don't belong to any of those flows
+// (notably paste-as-image and direct user uploads).
+model UserUpload {
+  id        String   @id @default(cuid())
+  userId    String
+  s3Key     String   @unique
+  fileName  String
+  fileSize  Int
+  mimeType  String
+  purpose   String   // general | chat-image | (future)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("user_uploads")
 }
 
 // ─── Page Views (admin analytics — traffic, geo, devices) ───

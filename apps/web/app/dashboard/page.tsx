@@ -583,6 +583,7 @@ export default function DashboardPage() {
                   className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground/50 py-2 resize-none overflow-hidden leading-relaxed"
                   rows={1}
                   style={{ maxHeight: 200 }}
+                  maxLength={5000}
                 />
               </div>
 
@@ -632,17 +633,24 @@ export default function DashboardPage() {
                   </button>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={!quickPrompt.trim() || createMutation.isPending}
-                  className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors"
-                >
-                  {createMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Send className="h-3.5 w-3.5" />
+                <div className="flex items-center gap-2">
+                  {quickPrompt.length > 4500 && (
+                    <span className={`text-[11px] tabular-nums ${quickPrompt.length >= 5000 ? "text-destructive" : "text-muted-foreground"}`}>
+                      {quickPrompt.length}/5000
+                    </span>
                   )}
-                </button>
+                  <button
+                    type="submit"
+                    disabled={!quickPrompt.trim() || createMutation.isPending}
+                    className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors"
+                  >
+                    {createMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </form>
