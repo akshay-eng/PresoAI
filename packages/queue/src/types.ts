@@ -51,11 +51,16 @@ export interface ThemeConfig {
 export interface PythonAgentJobData {
   projectId: string;
   jobId: string;
-  prompt: string;
-  numSlides: number;
-  audienceType: string;
+  // The following fields are required for `mode != "edit"` (full-generation
+  // jobs). Edit-mode jobs (`mode: "edit"`) dispatch a different payload —
+  // they carry `instruction`, `existingSlides`, `themeConfig`, etc. instead.
+  // Marked optional here so a single queue type accepts both shapes.
+  prompt?: string;
+  numSlides?: number;
+  audienceType?: string;
   templateS3Key?: string;
-  referenceFileKeys: string[];
+  referenceFileKeys?: string[];
+  langGraphThreadId?: string;
   selectedModel: {
     provider: string;
     model: string;
@@ -64,7 +69,10 @@ export interface PythonAgentJobData {
     temperature: number;
     maxTokens: number;
   };
-  langGraphThreadId: string;
+  // Edit-mode + other forward-compatible fields. The python-agent worker
+  // branches on `mode === "edit"` and reads its own subset of the payload.
+  // Index signature lets it tolerate the additional fields without TS errors.
+  [key: string]: unknown;
 }
 
 export interface NodeWorkerJobData {

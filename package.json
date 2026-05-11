@@ -11,7 +11,10 @@
       "sharp",
       "msgpackr-extract",
       "canvas"
-    ]
+    ],
+    "overrides": {
+      "zod": "^3.25.76"
+    }
   },
   "scripts": {
     "dev": "pnpm --parallel -r run dev",

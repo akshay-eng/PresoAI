@@ -323,7 +323,11 @@ export async function processNodeWorkerJob(
       data: {
         projectId, title: presentationTitle, s3Key, thumbnails,
         slideCount: slides.length, version: existingVersions + 1,
-        slidesData, themeSnapshot,
+        // Prisma's JSON input type is Record<string, JsonValue>; ThemeConfig
+        // is a structural interface without an index signature, so cast.
+        // The shape itself is JSON-serializable.
+        slidesData: slidesData as unknown as object,
+        themeSnapshot: themeSnapshot as unknown as object,
       },
     });
 

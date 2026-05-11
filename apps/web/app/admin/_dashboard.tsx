@@ -557,7 +557,7 @@ export function AdminDashboard() {
                     <YAxis tick={{ fontSize: 10 }} />
                     <Tooltip
                       contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }}
-                      labelFormatter={shortDay}
+                      labelFormatter={(label) => shortDay(String(label ?? ""))}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Bar dataKey="requests" name="Requests" fill="#6366f1" radius={[2, 2, 0, 0]} />

@@ -13,7 +13,7 @@
     "@aws-sdk/s3-request-presigner": "^3.682.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@hookform/resolvers": "^3.9.0",
+    "@hookform/resolvers": "^5.0.0",
     "@kandiforge/pptx-renderer": "^3.3.0",
     "@mui/icons-material": "^7.3.9",
     "@mui/material": "^7.3.9",

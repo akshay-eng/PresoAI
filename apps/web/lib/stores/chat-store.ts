@@ -22,6 +22,10 @@ export interface ChatMessage {
     presentationId?: string;
     s3Key?: string;
     imageKeys?: string[];
+    // Surgical-edit + intent-classifier additions
+    mode?: "edit" | "generate";
+    intent?: "generate" | "edit" | "clarify" | "decline" | "greeting";
+    guardrail?: boolean;
   };
 }
 
