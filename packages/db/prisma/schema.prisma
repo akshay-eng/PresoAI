@@ -53,8 +53,63 @@ model User {
   sourceFiles        SourceFile[]
   downloadEvents     DownloadEvent[]
   userUploads        UserUpload[]
+  apiKeys            ApiKey[]
 
   @@map("users")
+}
+
+// Audit log for every inbound v1 API request. Written fire-and-forget so it
+// never blocks a response. Drives the admin analytics dashboard. Indexed
+// for the common query shapes: per-user / per-key / per-endpoint / time range.
+model ApiRequestLog {
+  id            String   @id @default(cuid())
+  apiKeyId      String?
+  userId        String?
+  method        String                          // GET, POST, etc.
+  endpoint      String                          // e.g. "/v1/decks"
+  statusCode    Int
+  latencyMs     Int
+  jobId         String?                         // populated on deck-create / edit
+  errorCode     String?                         // structured error code if any
+  ip            String?
+  userAgent     String?
+  requestSize   Int?                            // bytes
+  responseSize  Int?                            // bytes
+  createdAt     DateTime @default(now())
+
+  @@index([apiKeyId, createdAt])
+  @@index([userId, createdAt])
+  @@index([endpoint, createdAt])
+  @@index([statusCode])
+  @@index([createdAt])
+  @@map("api_request_log")
+}
+
+// Developer-facing API keys (separate from `provider_api_keys`, which holds
+// 3rd-party LLM keys the user pastes in). These are keys we MINT for the
+// user so they can call our public REST API + MCP server. Stored encrypted
+// at rest so we can show the full value back to the user on demand
+// (developer-key UX expectation: copy/paste into your config).
+model ApiKey {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String                          // human label, e.g. "Local MCP server"
+  prefix        String                          // first 12 chars of the key for safe display
+  encryptedKey  String                          // AES-encrypted full key (decryptable)
+  // Last 4 chars stored in cleartext for display purposes ("•••• abcd").
+  // Helps the user identify a key without revealing the rest.
+  last4         String
+  expiresAt     DateTime?                       // null = never expires
+  lastUsedAt    DateTime?
+  revokedAt     DateTime?                       // soft-delete; rejected at auth
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([prefix])
+  @@map("api_keys")
 }
 
 // ─── User Uploads (Files library) ───
@@ -289,6 +344,13 @@ model Presentation {
   slideCount    Int
   version       Int      @default(1)
   metadata      Json?
+  // Per-slide pptxgenjs source so we can edit slides surgically
+  // without re-running the research → outline → slide_writer pipeline.
+  // Shape: [{ slide_number, title, code, speaker_notes }, ...]
+  slidesData    Json?
+  // The locked palette + style profile snapshot used to render this version.
+  // Lets the edit agent reconstruct the brand context without re-querying.
+  themeSnapshot Json?
   canvaDesignId String?
   jobId         String?
   createdAt     DateTime @default(now())
@@ -355,7 +417,8 @@ model StyleProfile {
   id                String   @id @default(cuid())
   name              String
   description       String?
-  userId            String
+  userId            String?  // null for global/default profiles offered to every user
+  isGlobal          Boolean  @default(false) // true for app-level defaults (IBM, ICICI, Wipro)
   status            String   @default("pending") // pending, analyzing, ready, failed
 
   // Structured theme data (merged from all source files)
@@ -372,11 +435,12 @@ model StyleProfile {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   sourceFiles       StyleProfileSource[]
   projects          Project[]
 
   @@index([userId])
+  @@index([isGlobal])
   @@map("style_profiles")
 }
 

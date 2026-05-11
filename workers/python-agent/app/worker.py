@@ -30,8 +30,18 @@ async def process_python_agent_job(job: Any, token: str | None = None) -> dict:
     project_id = job_data.get("projectId", "")
     publisher = ProgressPublisher(job_id)
 
+    # Edit-mode jobs skip the full langgraph and patch existing slides only.
+    if job_data.get("mode") == "edit":
+        return await _process_edit_job(job_data, publisher)
+
     try:
         await publisher.publish("starting", 0.0, "Starting AI agent pipeline...")
+
+        # Style profile theme has priority over the bare templateThemeConfig sent
+        # by the API (the API's `themeConfig` field is meant for the renderer's
+        # post-pass theme1.xml injection — slide content should still see the
+        # profile's colors directly so the LLM can pin every accent).
+        seed_theme = job_data.get("profileThemeConfig") or job_data.get("themeConfig") or {}
 
         initial_state: PPTGenerationState = {
             "user_prompt": job_data.get("prompt", ""),
@@ -44,6 +54,7 @@ async def process_python_agent_job(job: Any, token: str | None = None) -> dict:
             "research_results": [],
             "messages": [],
             "user_id": job_data.get("userId", ""),
+            "theme_config": seed_theme,
             "style_guide": job_data.get("styleGuide", ""),
             "visual_style": job_data.get("visualStyle", {}),
             "layout_patterns": job_data.get("layoutPatterns", []),
@@ -90,7 +101,25 @@ async def process_python_agent_job(job: Any, token: str | None = None) -> dict:
         s3_key = ""
         slide_count = 0
 
-        if engine in ("claude-code", "claude-gemini"):
+        if engine == "preso-pro":
+            # ── Preso Pro engine — shape-kit-based marketing generator ──
+            await publisher.publish(
+                "preso_pro_dispatch", 0.55,
+                "Routing to Preso Pro engine...",
+            )
+            from app.preso_pro import generate_preso_pro_deck
+            preso_result = await generate_preso_pro_deck(
+                final_state,
+                project_id=project_id,
+                job_id=job_id,
+                user_id=job_data.get("userId", ""),
+                project_name=job_data.get("projectName", "Presentation"),
+            )
+            s3_key = preso_result["s3_key"]
+            slide_count = preso_result["slide_count"]
+            logger.info("preso_pro_completed", job_id=job_id, s3_key=s3_key, slide_count=slide_count)
+
+        elif engine in ("claude-code", "claude-gemini"):
             # ── Claude Code Agent path (Anthropic or Gemini via proxy) ──
             use_gemini = engine == "claude-gemini"
             provider_label = "Gemini via proxy" if use_gemini else "Anthropic"
@@ -190,7 +219,116 @@ async def process_python_agent_job(job: Any, token: str | None = None) -> dict:
 
     except Exception as e:
         logger.error("job_failed", job_id=job_id, error=str(e))
-        await publisher.publish("failed", 1.0, f"Job failed: {e}")
+        # If BullMQ will retry this job, don't tell the UI it has failed —
+        # the next attempt would otherwise leave the user staring at a stale
+        # "Job failed" panel even after the retry succeeds. Only publish a
+        # terminal "failed" event when this was the LAST attempt.
+        is_last_attempt = True
+        try:
+            attempts_made = int(getattr(job, "attemptsMade", 0) or 0) + 1
+            max_attempts = int((job.opts or {}).get("attempts", 1)) if hasattr(job, "opts") else 1
+            is_last_attempt = attempts_made >= max_attempts
+        except Exception:
+            pass
+
+        if is_last_attempt:
+            await publisher.publish("failed", 1.0, f"Job failed: {e}")
+        else:
+            # Soft retry: keep the pipeline visible as still-in-flight.
+            await publisher.publish(
+                "retrying", 0.5,
+                f"Hit a transient error, retrying… ({e})",
+            )
+        await publisher.close()
+        raise
+
+
+async def _process_edit_job(job_data: dict, publisher: ProgressPublisher) -> dict:
+    """Handle a surgical-edit job. Loads existing slides, asks the edit
+    agent for patched slides, dispatches to the node-worker for re-render."""
+    job_id = job_data.get("jobId", "unknown")
+    project_id = job_data.get("projectId", "")
+
+    try:
+        await publisher.publish("starting", 0.05, "Loading existing slides...")
+
+        existing_slides = job_data.get("existingSlides") or []
+        instruction = job_data.get("instruction", "")
+        target_slides = job_data.get("targetSlides") or None
+        theme_config = job_data.get("themeConfig") or {}
+        style_guide = job_data.get("styleGuide", "")
+        visual_style = job_data.get("visualStyle") or {}
+        selected_model = job_data.get("selectedModel") or {}
+
+        if not existing_slides:
+            raise Exception("Edit job is missing existingSlides — nothing to patch.")
+        if not instruction.strip():
+            raise Exception("Edit job is missing an instruction.")
+
+        await publisher.publish(
+            "editing", 0.3,
+            f"Patching deck ({len(existing_slides)} slides loaded)...",
+        )
+
+        from app.agents.edit_agent import run_edit_agent
+        result = await run_edit_agent(
+            existing_slides=existing_slides,
+            instruction=instruction,
+            target_slides=target_slides,
+            theme_config=theme_config,
+            style_guide=style_guide,
+            visual_style=visual_style,
+            selected_model=selected_model,
+        )
+
+        edited_numbers = result.get("editedSlideNumbers", [])
+        summary = result.get("summary", "")
+        patched_slides = result["slides"]
+
+        if not edited_numbers:
+            await publisher.publish(
+                "complete", 1.0,
+                f"No changes were applied: {summary or 'edit agent declined'}",
+                data={"editedSlideNumbers": [], "summary": summary},
+            )
+            await publisher.close()
+            return {"editedSlideNumbers": [], "summary": summary}
+
+        await publisher.publish(
+            "rendering", 0.7,
+            f"Re-rendering deck — patched slide(s) {edited_numbers}: {summary[:120]}",
+        )
+
+        # Dispatch to the node-worker to render the patched deck.
+        node_worker_queue = Queue("ppt-node-worker", {"connection": _get_redis_opts()})
+        node_job_data = {
+            "projectId": project_id,
+            "jobId": job_id,
+            "slides": patched_slides,
+            "themeConfig": theme_config,
+            "numSlides": len(patched_slides),
+            "projectName": job_data.get("projectName", "Presentation"),
+        }
+        await node_worker_queue.add("generate-pptx", node_job_data)
+        await node_worker_queue.close()
+
+        logger.info(
+            "edit_job_dispatched",
+            job_id=job_id,
+            edited=edited_numbers,
+            summary=summary[:200],
+        )
+
+        # Node-worker will publish the final "complete" event after rendering.
+        await publisher.close()
+        return {
+            "editedSlideNumbers": edited_numbers,
+            "summary": summary,
+        }
+
+    except Exception as e:
+        logger.error("edit_job_failed", job_id=job_id, error=str(e))
+        await publisher.publish("failed", 1.0, f"Edit failed: {e}")
         await publisher.close()
         raise
 

@@ -11,8 +11,12 @@ export async function GET(
     const session = await getRequiredSession();
     const { id } = await params;
 
+    // Allow read access to any profile the user owns OR any global default.
     const profile = await prisma.styleProfile.findFirst({
-      where: { id, userId: session.user.id },
+      where: {
+        id,
+        OR: [{ userId: session.user.id }, { isGlobal: true }],
+      },
       include: {
         sourceFiles: true,
       },
@@ -40,8 +44,9 @@ export async function DELETE(
     const session = await getRequiredSession();
     const { id } = await params;
 
+    // Only the owner can delete; global defaults can never be deleted by users.
     const profile = await prisma.styleProfile.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, userId: session.user.id, isGlobal: false },
     });
 
     if (!profile) {

@@ -89,6 +89,7 @@ export function StyleProfileSelector({
 
   const profileList = (profiles || []) as Array<{
     id: string; name: string; status: string; styleGuide?: string;
+    isGlobal?: boolean;
     sourceFiles: Array<{ id: string; fileName: string; status: string; slideCount: number }>;
     _count: { projects: number };
   }>;
@@ -107,7 +108,9 @@ export function StyleProfileSelector({
         <SelectContent>
           <SelectItem value="none">No style profile</SelectItem>
           {profileList.filter((p) => p.status === "ready").map((p) => (
-            <SelectItem key={p.id} value={p.id}>{p.name} ({p.sourceFiles.length} files)</SelectItem>
+            <SelectItem key={p.id} value={p.id}>
+              {p.isGlobal ? `${p.name}  ·  Default` : `${p.name} (${p.sourceFiles.length} files)`}
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -151,7 +154,7 @@ export function StyleProfileSelector({
 }
 
 function ProfileCard({ profile, isExpanded, onToggle, onAnalyze, onDelete, isAnalyzing, canAnalyze }: {
-  profile: { id: string; name: string; status: string; sourceFiles: Array<{ id: string; fileName: string; status: string; slideCount: number }> };
+  profile: { id: string; name: string; status: string; isGlobal?: boolean; sourceFiles: Array<{ id: string; fileName: string; status: string; slideCount: number }> };
   isExpanded: boolean; onToggle: () => void; onAnalyze: () => void; onDelete: () => void; isAnalyzing: boolean; canAnalyze: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -180,11 +183,16 @@ function ProfileCard({ profile, isExpanded, onToggle, onAnalyze, onDelete, isAna
       <div className="flex items-center justify-between py-2 px-3">
         <button onClick={onToggle} className="flex items-center gap-2 text-left flex-1">
           <span className="text-xs font-medium">{profile.name}</span>
+          {profile.isGlobal && (
+            <Badge variant="secondary" className="text-[10px]">Default</Badge>
+          )}
           <Badge variant={profile.status === "ready" ? "default" : "outline"} className="text-[10px]">{profile.status}</Badge>
         </button>
-        <button className="text-muted-foreground hover:text-destructive transition-colors p-0.5" onClick={onDelete}>
-          <Trash2 className="h-3 w-3" />
-        </button>
+        {!profile.isGlobal && (
+          <button className="text-muted-foreground hover:text-destructive transition-colors p-0.5" onClick={onDelete}>
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
       </div>
 
       {isExpanded && (

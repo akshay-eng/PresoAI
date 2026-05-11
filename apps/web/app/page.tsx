@@ -42,6 +42,9 @@ export default function LandingPage() {
             <PresoLogo size="md" />
           </Link>
           <nav className="flex items-center gap-2">
+            <Link href="/docs">
+              <Button variant="ghost" size="sm">Docs</Button>
+            </Link>
             <Link href="/auth/login">
               <Button variant="ghost" size="sm">Sign in</Button>
             </Link>

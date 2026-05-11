@@ -11,6 +11,7 @@ env:
   WEB_IMAGE: ak3hay/preso-web
   PYTHON_AGENT_IMAGE: ak3hay/preso-python-agent
   NODE_WORKER_IMAGE: ak3hay/preso-node-worker
+  MCP_SERVER_IMAGE: ak3hay/preso-mcp-server
 
 jobs:
   build-web:
@@ -109,9 +110,41 @@ jobs:
           cache-from: type=gha,scope=node
           cache-to: type=gha,mode=max,scope=node
 
+  build-mcp-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set tag
+        id: tag
+        run: echo "tag=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+
+      - name: Build & Push — MCP Server
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: workers/mcp-server/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.MCP_SERVER_IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.MCP_SERVER_IMAGE }}:latest
+          cache-from: type=gha,scope=mcp
+          cache-to: type=gha,mode=max,scope=mcp
+
   update-manifests:
     runs-on: ubuntu-latest
-    needs: [build-web, build-python-agent, build-node-worker]
+    needs: [build-web, build-python-agent, build-node-worker, build-mcp-server]
     if: github.event_name == 'push'
     steps:
       - name: Update K8s Manifests

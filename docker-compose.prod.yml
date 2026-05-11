@@ -71,6 +71,36 @@ services:
       redis:
         condition: service_healthy
 
+  # Remote MCP server. Wraps the v1 REST API as MCP tools so Claude Desktop,
+  # Cursor, n8n and other agent runtimes can drive deck generation. Auth is
+  # via the same psf_… bearer keys minted at /settings → Developer.
+  mcp-server:
+    build:
+      context: .
+      dockerfile: workers/mcp-server/Dockerfile
+      target: runner
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    env_file:
+      - ./workers/mcp-server/.env.production
+    environment:
+      # Defaults; override via .env.production if needed.
+      MCP_PORT: "8200"
+      MCP_HOST: "0.0.0.0"
+      MCP_ENDPOINT: "/mcp"
+      # Inside the compose network, the web service is reachable by name.
+      PRESO_API_BASE_URL: "http://web:3000"
+    depends_on:
+      web:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   postgres_data:
   redis_data:

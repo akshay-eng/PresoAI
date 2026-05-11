@@ -29,10 +29,18 @@ export async function GET(
 
   const buffer = await fileRes.arrayBuffer();
 
+  // HTTP headers must be Latin-1. Project titles often contain em dashes,
+  // smart quotes, or other non-ASCII chars that crash `new Response(...)` —
+  // strip to ASCII for the filename= param, and use the RFC 5987 filename*
+  // form so clients still get the original UTF-8 name.
+  const rawTitle = (presentation.title || "presentation").trim();
+  const asciiTitle = rawTitle.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "") || "presentation";
+  const utf8Title = encodeURIComponent(rawTitle);
+
   return new Response(buffer, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      "Content-Disposition": `attachment; filename="${presentation.title || "presentation"}.pptx"`,
+      "Content-Disposition": `attachment; filename="${asciiTitle}.pptx"; filename*=UTF-8''${utf8Title}.pptx`,
     },
   });
 }

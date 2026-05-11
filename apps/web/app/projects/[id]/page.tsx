@@ -47,6 +47,7 @@ import { SlidePlanPanel } from "@/components/generation/slide-plan-panel";
 import { PptxPreview } from "@/components/generation/pptx-preview";
 import { CollaboraEditor } from "@/components/generation/collabora-editor";
 import { api } from "@/lib/api-client";
+import { classifyIntent } from "@/lib/intent";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -121,6 +122,9 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       return;
     }
 
+    // Only terminal phases land in the chat log. Mid-flight phases are shown
+    // as transient text next to the progress bar via the generation store and
+    // disappear once the job completes.
     if (phase === "complete") {
       savedPhasesRef.current.add(key);
       addMessage(id, {
@@ -146,7 +150,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [projectName, setProjectName] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
+  const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker" | "preso-pro">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
   const [useDiagramImages, setUseDiagramImages] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -185,6 +189,20 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     presentations: Array<{ id: string; title: string; version: number; slideCount: number }>;
     llmConfig?: { id: string };
   } | null;
+
+  // When a new generation/edit completes a fresh presentation lands at the
+  // top of `p.presentations`. Snap the version dropdown to that new latest
+  // so the user sees the freshest deck — unless they had explicitly picked
+  // an older version that still exists, in which case respect their choice.
+  const latestRenderedId = p?.presentations?.[0]?.id;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!latestRenderedId) return;
+    const stillExists = !!p?.presentations?.find((pp) => pp.id === latestPresentationId);
+    if (!latestPresentationId || !stillExists) {
+      setLatestPresentationId(latestRenderedId);
+    }
+  }, [latestRenderedId]);
 
   // Load models list for auto-select
   const { data: modelsData } = useQuery({
@@ -328,7 +346,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       setActivePanel("plan");
       addMessage(id, {
         role: "assistant",
-        content: `Starting presentation generation using ${engine === "claude-gemini" ? "Preso Plus" : engine === "claude-code" ? "Preso Pro" : "Preso Elite"} engine${creativeMode ? " with Creative Mode" : ""}...`,
+        content: `Starting presentation generation using ${engine === "preso-pro" ? "Preso Pro" : engine === "claude-gemini" ? "Preso Plus" : engine === "claude-code" ? "Preso Code" : "Preso Elite"} engine${creativeMode ? " with Creative Mode" : ""}...`,
         metadata: { phase: "starting", jobId: data.jobId, engine },
       });
       // Auto-open the plan panel to show live progress (Canva-like experience)
@@ -340,6 +358,26 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         role: "system",
         content: `Failed to start generation: ${err.message}`,
         metadata: { error: err.message },
+      });
+    },
+  });
+
+  // Surgical edit: patches the existing deck without re-running the full pipeline.
+  // No chat narration — the live progress message renders next to the progress
+  // bar (same as the initial generation flow) and disappears on completion.
+  const editMutation = useMutation({
+    mutationFn: (vars: { instruction: string; modelId: string; targetSlides?: number[] }) =>
+      api.editPresentation(id, vars),
+    onSuccess: (data) => {
+      setJobId(data.jobId);
+      setActivePanel("plan");
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+      addMessage(id, {
+        role: "system",
+        content: `Edit failed: ${err.message}`,
+        metadata: { error: err.message, mode: "edit" },
       });
     },
   });
@@ -426,7 +464,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     return () => document.removeEventListener("click", handler);
   }, [showAttachMenu]);
 
-  function handleSendPrompt(e: React.FormEvent) {
+  async function handleSendPrompt(e: React.FormEvent) {
     e.preventDefault();
     if (!prompt.trim()) return;
 
@@ -437,13 +475,36 @@ export default function ProjectPage({ params }: ProjectPageProps) {
 
     const currentPrompt = prompt.trim();
 
-    // Save to chat history
+    // Save the user message to chat history immediately so they see it land.
     const imageKeys = pastedImages.map((img) => img.key);
     addMessage(id, {
       role: "user",
       content: currentPrompt,
       metadata: { audienceType, numSlides, engine, imageKeys: imageKeys.length > 0 ? imageKeys : undefined },
     });
+
+    // Guardrail: classify the input. Greetings, off-topic, or vague-deck
+    // requests get a friendly assistant reply in chat — no generation.
+    const hasPresentation = (p?.presentations?.length || 0) > 0;
+    try {
+      const intent = await classifyIntent(currentPrompt, hasPresentation);
+      if (intent.action !== "generate" && intent.action !== "edit") {
+        addMessage(id, {
+          role: "assistant",
+          content: intent.reply ||
+            "Tell me the topic, audience, and roughly how many slides — I'll build the deck from there.",
+          metadata: { intent: intent.action, guardrail: true },
+        });
+        // Clear the input and stop here — no project update, no generation.
+        setPrompt("");
+        setPastedImages([]);
+        if (textareaRef.current) {
+          textareaRef.current.value = "";
+          textareaRef.current.style.height = "auto";
+        }
+        return;
+      }
+    } catch { /* fall through to generation on classifier failure */ }
 
     setSubmittedPrompt(currentPrompt);
     setHasSubmitted(true);
@@ -504,7 +565,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     }
   }
 
-  function handleSendFollowUp() {
+  async function handleSendFollowUp() {
     if (!prompt.trim()) return;
 
     const currentPrompt = prompt.trim();
@@ -516,16 +577,6 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       metadata: { audienceType, numSlides },
     });
 
-    // Build context-aware prompt: include the original topic + follow-up instruction
-    // so the LLM knows what deck was previously generated and what to change
-    const originalPrompt = p?.prompt || submittedPrompt || "";
-    const contextPrompt = originalPrompt
-      ? `[FOLLOW-UP] Original deck topic: "${originalPrompt}"\n\nUser's modification request: ${currentPrompt}\n\nRegenerate the presentation incorporating this feedback. Keep the same topic but apply the requested changes.`
-      : currentPrompt;
-
-    setSubmittedPrompt(contextPrompt);
-    updateMutation.mutate({ prompt: contextPrompt, numSlides, audienceType });
-
     // Clear the input
     setPrompt("");
     if (textareaRef.current) {
@@ -533,13 +584,95 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       textareaRef.current.style.height = "auto";
     }
 
-    // Auto-generate if model is selected
-    if (selectedModelId) {
-      setTimeout(() => generateMutation.mutate(), 100);
-    } else {
+    if (!selectedModelId) {
       toast.error("Select an AI model first");
       setActivePanel("model");
+      return;
     }
+
+    const hasPresentation = (p?.presentations?.length || 0) > 0;
+
+    // Guardrail: classify the follow-up. If it's a greeting / off-topic /
+    // vague request, reply in chat without kicking off any work.
+    try {
+      const intent = await classifyIntent(currentPrompt, hasPresentation);
+      if (intent.action === "greeting" || intent.action === "decline" || intent.action === "clarify") {
+        addMessage(id, {
+          role: "assistant",
+          content: intent.reply ||
+            "Tell me what to change about the deck and I'll patch it.",
+          metadata: { intent: intent.action, guardrail: true },
+        });
+        return;
+      }
+    } catch { /* fall through on classifier failure */ }
+
+    // Intent routing: when an existing presentation is in this project AND the
+    // message reads like a modification (the common case), surgically edit it
+    // via /api/projects/:id/edit instead of re-running the whole pipeline.
+    // Hard signals like "new deck"/"different topic"/"start over" still fall
+    // through to a full regenerate.
+    const wantsNewDeck = isNewDeckRequest(currentPrompt);
+
+    if (hasPresentation && !wantsNewDeck) {
+      const targetSlides = extractTargetSlideNumbers(currentPrompt);
+      // No static placeholder — the python-agent + node-worker publish live
+      // phase events ("starting" → "editing" → "rendering" → "building_pptx"
+      // → "generating_thumbnails" → "complete") and the SSE listener pumps
+      // each one into chat as a distinct assistant message, just like the
+      // initial generation flow.
+      editMutation.mutate({
+        instruction: currentPrompt,
+        modelId: selectedModelId,
+        ...(targetSlides && targetSlides.length > 0 ? { targetSlides } : {}),
+      });
+      return;
+    }
+
+    // Full regenerate path. Build context so the model knows the previous
+    // topic.
+    const originalPrompt = p?.prompt || submittedPrompt || "";
+    const contextPrompt = originalPrompt && hasPresentation
+      ? `[FOLLOW-UP] Original deck topic: "${originalPrompt}"\n\nUser's modification request: ${currentPrompt}\n\nRegenerate the presentation incorporating this feedback. Keep the same topic but apply the requested changes.`
+      : currentPrompt;
+
+    setSubmittedPrompt(contextPrompt);
+    updateMutation.mutate({ prompt: contextPrompt, numSlides, audienceType });
+
+    setTimeout(() => generateMutation.mutate(), 100);
+  }
+
+  // Hard signals that the user wants a fresh deck rather than an edit.
+  function isNewDeckRequest(text: string): boolean {
+    const t = text.toLowerCase().trim();
+    return /\b(start over|forget (that|this)|new deck|create (a |an )?(new |different |another )?(deck|presentation)|generate (a |an )?(new |different |another )?(deck|presentation)|switch (the )?topic|different topic|brand[- ]?new)\b/.test(t);
+  }
+
+  // Best-effort: pluck slide numbers out of the instruction so the edit
+  // agent gets a strong hint. "change slide 3" → [3]; "make slides 2 and 4
+  // darker" → [2, 4]. Empty array means: let the agent decide.
+  function extractTargetSlideNumbers(text: string): number[] | null {
+    const out = new Set<number>();
+    const range = /\bslides?\s+(\d+)\s*(?:[-–to]+\s*(\d+))?/gi;
+    let m: RegExpExecArray | null;
+    while ((m = range.exec(text)) !== null) {
+      const a = parseInt(m[1], 10);
+      const b = m[2] ? parseInt(m[2], 10) : a;
+      if (!Number.isNaN(a) && !Number.isNaN(b)) {
+        const lo = Math.min(a, b);
+        const hi = Math.max(a, b);
+        for (let n = lo; n <= hi; n++) out.add(n);
+      }
+    }
+    // Also catch comma-separated forms: "slides 2, 4 and 7"
+    const csv = /\bslides?\s+([\d, and]+)/i.exec(text);
+    if (csv) {
+      for (const tok of csv[1].split(/[,\s]+|\band\b/)) {
+        const n = parseInt(tok, 10);
+        if (!Number.isNaN(n) && n > 0) out.add(n);
+      }
+    }
+    return out.size === 0 ? null : Array.from(out).sort((a, b) => a - b);
   }
 
   function handleGenerate() {
@@ -630,9 +763,10 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   }
 
   const engines = [
-    { key: "claude-code" as const, label: "Preso Pro", disabled: true },
-    { key: "claude-gemini" as const, label: "Preso Plus", disabled: true },
+    { key: "preso-pro" as const, label: "Preso Pro", disabled: false },
     { key: "node-worker" as const, label: "Preso Elite", disabled: false },
+    { key: "claude-code" as const, label: "Preso Code", disabled: true },
+    { key: "claude-gemini" as const, label: "Preso Plus", disabled: true },
   ];
 
   const attachOptions = [
@@ -651,6 +785,21 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   if (selectedProfileId) attachedChips.push({ label: "Style profile", panel: "style" });
 
   const showPanel = activePanel !== "none";
+
+  // Index of the most recent assistant message with phase=complete. Only that
+  // message gets the Download/Preview/Edit action row — older completion
+  // messages stay in chat as text history but lose the buttons. Combined with
+  // the `isAnyJobActive` gate below, this prevents the duplicate
+  // "your slide is ready" rows that appear after follow-up generations.
+  let latestCompleteMessageIdx = -1;
+  for (let i = chatMessages.length - 1; i >= 0; i--) {
+    if (chatMessages[i]?.metadata?.phase === "complete") {
+      latestCompleteMessageIdx = i;
+      break;
+    }
+  }
+  const isAnyJobActive =
+    isGenerating || generateMutation.isPending || editMutation.isPending;
 
   return (
     <div className="min-h-screen flex">
@@ -703,8 +852,18 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                 </div>
               )}
 
-              {/* Persistent chat messages */}
-              {chatMessages.map((msg, idx) => (
+              {chatMessages.map((msg, idx) => {
+                // "Presentation ready!" messages should appear ONCE — for the
+                // most recent completion only. As soon as a fresh job kicks
+                // off, hide the previous one entirely (text + buttons) so the
+                // chat doesn't accumulate redundant success rows. When the
+                // new job completes a new message replaces it.
+                const isCompletionMsg =
+                  msg.role === "assistant" && msg.metadata?.phase === "complete";
+                if (isCompletionMsg && (isAnyJobActive || idx !== latestCompleteMessageIdx)) {
+                  return null;
+                }
+                return (
                 <motion.div
                   key={msg.id}
                   initial={idx >= chatMessages.length - 2 ? { opacity: 0, y: 8 } : false}
@@ -734,7 +893,9 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                   ) : (
                     <div className="space-y-1">
                       <p className="text-sm leading-relaxed">{msg.content}</p>
-                      {msg.metadata?.phase === "complete" && (
+                      {msg.metadata?.phase === "complete"
+                        && idx === latestCompleteMessageIdx
+                        && !isAnyJobActive && (
                         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                           <Button
                             size="sm"
@@ -787,7 +948,8 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     </div>
                   )}
                 </motion.div>
-              ))}
+                );
+              })}
 
               {/* AI responses */}
               {hasSubmitted && (jobId || generateMutation.isPending) && (
@@ -1042,6 +1204,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         <option value="executive">Executive</option>
                         <option value="technical">Technical</option>
                         <option value="general">General</option>
+                        <option value="marketing">Marketing</option>
                       </select>
                       <select
                         value={numSlides}
@@ -1117,8 +1280,8 @@ export default function ProjectPage({ params }: ProjectPageProps) {
             >
               <div className="w-full h-full flex flex-col">
                 {/* Panel header */}
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 shrink-0">
-                  <p className="text-sm font-semibold">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 shrink-0 gap-3">
+                  <p className="text-sm font-semibold shrink-0">
                     {activePanel === "plan" && "Slide Plan"}
                     {activePanel === "preview" && "Presentation Preview"}
                     {activePanel === "files" && "Generated Files"}
@@ -1130,7 +1293,29 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     {activePanel === "style" && "Style Profile"}
                     {activePanel === "engine" && "Engine"}
                   </p>
-                  <div className="flex items-center gap-1">
+
+                  {/* Version switcher — only when previewing/editing AND there
+                      is at least one rendered presentation. Drives both the
+                      preview and the editor; download buttons inside the
+                      panel use the selected version too. */}
+                  {(activePanel === "preview" || activePanel === "editor")
+                    && p?.presentations && p.presentations.length > 0 && (
+                    <select
+                      value={latestPresentationId || p.presentations[0]!.id}
+                      onChange={(e) => setLatestPresentationId(e.target.value)}
+                      className="ml-auto h-7 max-w-[180px] rounded-md border border-border bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
+                      aria-label="Select version"
+                    >
+                      {p.presentations.map((pres) => (
+                        <option key={pres.id} value={pres.id}>
+                          v{pres.version} · {pres.slideCount} slide{pres.slideCount !== 1 ? "s" : ""}
+                          {pres === p.presentations[0] ? " (latest)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  <div className="flex items-center gap-1 shrink-0">
                     {activePanel === "outline" && phase === "awaiting_review" && (
                       <button
                         onClick={() => setEditingOutline(!editingOutline)}
@@ -1217,9 +1402,16 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     </div>
                   )}
 
-                  {/* Editor — Collabora inline */}
+                  {/* Editor — Collabora inline. Uses the version selected in
+                      the panel header dropdown (defaults to the latest). */}
                   {activePanel === "editor" && p?.presentations?.[0] && (
-                    <CollaboraEditor presentationId={p.presentations[0].id} />
+                    <CollaboraEditor
+                      presentationId={latestPresentationId || p.presentations[0].id}
+                      // Force a remount when the version changes so Collabora
+                      // re-fetches the new file rather than holding the old
+                      // document in its iframe state.
+                      key={latestPresentationId || p.presentations[0].id}
+                    />
                   )}
 
                   <div className={activePanel === "plan" || activePanel === "preview" || activePanel === "files" || activePanel === "editor" ? "hidden" : "p-5"}>
@@ -1392,9 +1584,10 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
+                              {eng.key === "preso-pro" && "Marketing-grade decks. Locked palettes, shape kit, native editable PPTX."}
+                              {eng.key === "node-worker" && "AI-powered slide generation with visual design"}
                               {eng.key === "claude-code" && "Advanced AI code generation engine"}
                               {eng.key === "claude-gemini" && "Gemini-powered design engine"}
-                              {eng.key === "node-worker" && "AI-powered slide generation with visual design"}
                             </p>
                           </button>
                         ))}

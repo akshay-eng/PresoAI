@@ -35,6 +35,7 @@ export const api = {
     prompt: string;
     numSlides?: number;
     audienceType?: string;
+    styleProfileId?: string;
   }) => fetchApi<unknown>("/api/projects", { method: "POST", body: JSON.stringify(data) }),
 
   getProject: (id: string) => fetchApi<unknown>(`/api/projects/${id}`),
@@ -77,6 +78,17 @@ export const api = {
   }) =>
     fetchApi<{ jobId: string }>(
       `/api/projects/${projectId}/generate`,
+      { method: "POST", body: JSON.stringify(data) }
+    ),
+
+  // Surgical edit — patches the existing deck instead of regenerating it
+  editPresentation: (projectId: string, data: {
+    instruction: string;
+    modelId: string;
+    targetSlides?: number[];
+  }) =>
+    fetchApi<{ jobId: string; basePresentationId: string; slideCount: number }>(
+      `/api/projects/${projectId}/edit`,
       { method: "POST", body: JSON.stringify(data) }
     ),
 

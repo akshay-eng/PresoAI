@@ -21,6 +21,7 @@ import { api } from "@/lib/api-client";
 import { StyleProfileViewer } from "@/components/project/style-profile-viewer";
 import { FilePicker } from "@/components/project/file-picker";
 import { useChatStore } from "@/lib/stores/chat-store";
+import { classifyIntent } from "@/lib/intent";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
@@ -35,7 +36,7 @@ export default function DashboardPage() {
   const [audienceType, setAudienceType] = useState("general");
   const [numSlides, setNumSlides] = useState(10);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker">("node-worker");
+  const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker" | "preso-pro">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
   const [useDiagramImages, setUseDiagramImages] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
@@ -126,6 +127,7 @@ export default function DashboardPage() {
         prompt,
         numSlides,
         audienceType,
+        ...(selectedProfileId ? { styleProfileId: selectedProfileId } : {}),
       });
       return project;
     },
@@ -254,16 +256,49 @@ export default function DashboardPage() {
     });
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  // When the user submits something that isn't a deck request (greeting,
+  // off-topic, too vague), the agent's friendly redirect lands here and is
+  // rendered inline above the input — no project is created and no progress
+  // bar appears. Cleared as soon as they type again.
+  const [intentReply, setIntentReply] = useState<string | null>(null);
+  const [intentChecking, setIntentChecking] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!quickPrompt.trim()) return;
+    const trimmed = quickPrompt.trim();
+    if (!trimmed) return;
     if (!selectedModelId) {
       toast.error("Select an AI model first");
       setShowAttach(true);
       return;
     }
+
+    // Guardrail: only build a project + start generation when the input is
+    // actually a deck request. "hi", "what can you do", "write me a poem"
+    // and similar inputs get a friendly inline redirect.
+    setIntentChecking(true);
+    setIntentReply(null);
+    try {
+      const intent = await classifyIntent(trimmed, false);
+      if (intent.action !== "generate") {
+        setIntentReply(
+          intent.reply ||
+            "Tell me the topic, audience, and roughly how many slides — I'll build the deck from there."
+        );
+        return;
+      }
+    } finally {
+      setIntentChecking(false);
+    }
+
     createMutation.mutate();
   }
+
+  // Drop the redirect message as soon as the user starts editing the prompt.
+  useEffect(() => {
+    if (intentReply) setIntentReply(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickPrompt]);
 
   // Close popover on outside click
   useEffect(() => {
@@ -404,7 +439,7 @@ export default function DashboardPage() {
                               <Users className="h-3 w-3" /> Audience
                             </label>
                             <div className="flex gap-1">
-                              {(["executive", "technical", "general"] as const).map((a) => (
+                              {(["executive", "technical", "general", "marketing"] as const).map((a) => (
                                 <button
                                   key={a}
                                   type="button"
@@ -446,9 +481,9 @@ export default function DashboardPage() {
                             </label>
                             <div className="flex gap-1">
                               {([
-                                { key: "claude-code" as const, label: "Preso Pro", disabled: true },
-                                { key: "claude-gemini" as const, label: "Preso Plus", disabled: true },
+                                { key: "preso-pro" as const, label: "Preso Pro", disabled: false },
                                 { key: "node-worker" as const, label: "Preso Elite", disabled: false },
+                                { key: "claude-gemini" as const, label: "Preso Plus", disabled: true },
                               ]).map((eng) => (
                                 <button
                                   key={eng.key}
@@ -680,6 +715,33 @@ export default function DashboardPage() {
             </div>
           </form>
 
+          {/* Agent guardrail reply: shown when the input wasn't a deck request.
+              Disappears the moment the user starts editing the prompt again. */}
+          <AnimatePresence>
+            {intentReply && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.15 }}
+                className="mt-3 mx-auto max-w-xl rounded-xl border border-border/60 bg-card px-4 py-3 text-left flex items-start gap-3"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                <p className="text-xs leading-relaxed text-foreground/90">{intentReply}</p>
+              </motion.div>
+            )}
+            {intentChecking && !intentReply && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="mt-3 text-center text-[11px] text-muted-foreground"
+              >
+                Thinking…
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Suggestions */}
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             {[
@@ -734,57 +796,68 @@ export default function DashboardPage() {
             </button>
 
             {/* Existing profiles */}
-            {(styleProfiles as Array<{ id: string; name: string; status: string; visualStyle?: { design_language?: string }; themeConfig?: Record<string, string> }>).map((profile) => (
-              <div
-                key={profile.id}
-                onClick={() => {
-                  setSelectedProfileId(profile.id);
-                  setShowStyleDetail(profile.id);
-                }}
-                className={`shrink-0 w-48 h-36 rounded-xl border transition-all cursor-pointer overflow-hidden relative group flex flex-col ${
-                  selectedProfileId === profile.id
-                    ? "border-primary ring-1 ring-primary/30"
-                    : "border-border/60 hover:border-border hover:shadow-sm"
-                }`}
-              >
-                {/* Color bar from theme */}
-                <div className="h-2 w-full flex">
-                  {profile.themeConfig && Object.entries(profile.themeConfig)
-                    .filter(([k]) => k.startsWith("accent"))
-                    .slice(0, 6)
-                    .map(([k, v]) => (
-                      <div key={k} className="flex-1" style={{ backgroundColor: v as string }} />
-                    ))
-                  }
-                  {(!profile.themeConfig || Object.keys(profile.themeConfig).length === 0) && (
-                    <div className="flex-1 bg-gradient-to-r from-primary/30 to-primary/10" />
-                  )}
-                </div>
-                <div className="p-2.5 flex-1 flex flex-col">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold truncate">{profile.name}</p>
-                    <Badge variant={profile.status === "ready" ? "default" : "secondary"} className="text-[8px] h-4 px-1">
-                      {profile.status}
-                    </Badge>
+            {(styleProfiles as Array<{ id: string; name: string; status: string; isGlobal?: boolean; visualStyle?: { design_language?: string }; themeConfig?: Record<string, unknown> }>).map((profile) => {
+              // themeConfig may be flat (legacy: accent1, dk1, ...) OR nested under .colors (seeded)
+              const tc = (profile.themeConfig || {}) as Record<string, unknown>;
+              const nested = tc.colors as Record<string, string> | undefined;
+              const palette = nested
+                ? [nested.primary, nested.secondary, nested.accent1, nested.accent2, nested.accent3, nested.accent4].filter(Boolean) as string[]
+                : Object.entries(tc).filter(([k]) => k.startsWith("accent")).slice(0, 6).map(([, v]) => v as string);
+              return (
+                <div
+                  key={profile.id}
+                  onClick={() => {
+                    setSelectedProfileId(profile.id);
+                    setShowStyleDetail(profile.id);
+                  }}
+                  className={`shrink-0 w-48 h-36 rounded-xl border transition-all cursor-pointer overflow-hidden relative group flex flex-col ${
+                    selectedProfileId === profile.id
+                      ? "border-primary ring-1 ring-primary/30"
+                      : "border-border/60 hover:border-border hover:shadow-sm"
+                  }`}
+                >
+                  {/* Color bar from theme */}
+                  <div className="h-2 w-full flex">
+                    {palette.length > 0 ? (
+                      palette.map((c, i) => (
+                        <div key={i} className="flex-1" style={{ backgroundColor: c }} />
+                      ))
+                    ) : (
+                      <div className="flex-1 bg-gradient-to-r from-primary/30 to-primary/10" />
+                    )}
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2 leading-tight flex-1">
-                    {(profile.visualStyle as { design_language?: string })?.design_language || "Analyzing style..."}
-                  </p>
-                  <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-border/30">
-                    <span className="text-[9px] text-muted-foreground/50">Click to view</span>
-                    <button
-                      className="p-0.5 rounded text-muted-foreground/40 hover:text-destructive transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteStyleConfirm({ id: profile.id, name: profile.name });
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                  <div className="p-2.5 flex-1 flex flex-col">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold truncate">{profile.name}</p>
+                      {profile.isGlobal ? (
+                        <Badge variant="secondary" className="text-[8px] h-4 px-1">Default</Badge>
+                      ) : (
+                        <Badge variant={profile.status === "ready" ? "default" : "secondary"} className="text-[8px] h-4 px-1">
+                          {profile.status}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2 leading-tight flex-1">
+                      {(profile.visualStyle as { design_language?: string })?.design_language || "Analyzing style..."}
+                    </p>
+                    <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-border/30">
+                      <span className="text-[9px] text-muted-foreground/50">Click to view</span>
+                      {!profile.isGlobal && (
+                        <button
+                          className="p-0.5 rounded text-muted-foreground/40 hover:text-destructive transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteStyleConfirm({ id: profile.id, name: profile.name });
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </motion.div>
 
@@ -808,18 +881,20 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold">Style Profile Details</h3>
                   <div className="flex items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => {
-                        const prof = (styleProfiles as Array<{ id: string; name: string }>).find((p) => p.id === showStyleDetail);
-                        setDeleteStyleConfirm({ id: showStyleDetail!, name: prof?.name || "Style" });
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3 mr-1" />
-                      Delete
-                    </Button>
+                    {!(styleProfiles as Array<{ id: string; isGlobal?: boolean }>).find((p) => p.id === showStyleDetail)?.isGlobal && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => {
+                          const prof = (styleProfiles as Array<{ id: string; name: string }>).find((p) => p.id === showStyleDetail);
+                          setDeleteStyleConfirm({ id: showStyleDetail!, name: prof?.name || "Style" });
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        Delete
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setShowStyleDetail(null)}>
                       <X className="h-3.5 w-3.5" />
                     </Button>

@@ -13,7 +13,7 @@ const AdminWorldMap = dynamic(() => import("./_world-map"), {
 import {
   Activity, Users, FileText, Download, Cpu, Zap, LogOut,
   TrendingUp, Coins, Wallet, Loader2, Search, Globe, Monitor,
-  Eye, ExternalLink,
+  Eye, ExternalLink, Code2, AlertTriangle, Gauge, KeyRound,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -68,6 +68,23 @@ type Traffic = {
   referrers: Array<{ referrer: string; count: number }>;
 };
 
+type ApiUsage = {
+  window: { start: string; end: string; days: number };
+  totals: {
+    requests: number; successes: number; clientErrors: number;
+    serverErrors: number; ratelimited: number; distinctKeys: number; distinctUsers: number;
+  };
+  latency: { p50: number; p95: number; p99: number; max: number; avg: number };
+  series: Array<{ day: string; requests: number; errors: number; p95: number }>;
+  statusBreakdown: { ok2xx: number; redirect3xx: number; client4xx: number; server5xx: number };
+  topEndpoints: Array<{ endpoint: string; count: number; errorRate: number }>;
+  topKeys: Array<{
+    apiKeyId: string | null; name: string; prefix: string | null; last4: string | null;
+    userEmail: string | null; count: number; errorRate: number; lastUsedAt: string | null;
+  }>;
+  topErrors: Array<{ errorCode: string; count: number }>;
+};
+
 type UserRow = {
   id: string;
   email: string;
@@ -117,6 +134,16 @@ export function AdminDashboard() {
     queryFn: async () => {
       const r = await fetch(`/api/admin/analytics/traffic?days=${days}`);
       if (!r.ok) throw new Error("Failed to load traffic");
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const apiUsage = useQuery<ApiUsage>({
+    queryKey: ["admin-api-usage", days],
+    queryFn: async () => {
+      const r = await fetch(`/api/admin/analytics/api-usage?days=${days}`);
+      if (!r.ok) throw new Error("Failed to load API usage");
       return r.json();
     },
     refetchInterval: 60_000,
@@ -446,14 +473,191 @@ export function AdminDashboard() {
               <Header icon={ExternalLink} title="Referrers" subtitle="Where visitors came from" />
               {traffic.data && traffic.data.referrers.length > 0 ? (
                 <ul className="text-xs divide-y divide-border/40 max-h-[180px] overflow-y-auto">
-                  {traffic.data.referrers.map((r) => (
-                    <li key={r.referrer} className="flex items-center justify-between py-1.5">
+                  {traffic.data.referrers.map((r, i) => (
+                    <li key={`${r.referrer}-${i}`} className="flex items-center justify-between py-1.5">
                       <span className="truncate pr-2">{r.referrer}</span>
                       <span className="text-muted-foreground tabular-nums">{r.count}</span>
                     </li>
                   ))}
                 </ul>
               ) : <p className="text-xs text-muted-foreground py-8 text-center">—</p>}
+            </div>
+          </div>
+        </section>
+
+        {/* ────────────────────────────── API Activity ──────────────────────────── */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold flex items-center gap-2">
+                <Code2 className="h-4 w-4 text-primary" /> API activity
+              </h2>
+              <p className="text-[11px] text-muted-foreground">
+                Inbound traffic on the public v1 REST API. Auto-refreshes every minute.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {apiUsage.data ? `${apiUsage.data.totals.requests.toLocaleString()} requests / ${days}d` : "—"}
+            </span>
+          </div>
+
+          {/* KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <KpiCard
+              icon={Activity}
+              label="Requests"
+              value={apiUsage.data?.totals.requests}
+              sub={apiUsage.data ? `${apiUsage.data.totals.successes} OK` : undefined}
+            />
+            <KpiCard
+              icon={AlertTriangle}
+              label="Errors"
+              value={apiUsage.data ? apiUsage.data.totals.clientErrors + apiUsage.data.totals.serverErrors : undefined}
+              sub={apiUsage.data ? `${apiUsage.data.totals.serverErrors} 5xx` : undefined}
+            />
+            <KpiCard
+              icon={Zap}
+              label="Rate-limited"
+              value={apiUsage.data?.totals.ratelimited}
+              sub="429s"
+            />
+            <KpiCard
+              icon={Gauge}
+              label="Latency p95"
+              value={apiUsage.data?.latency.p95}
+              sub={apiUsage.data ? `p50 ${apiUsage.data.latency.p50}ms · p99 ${apiUsage.data.latency.p99}ms` : undefined}
+            />
+            <KpiCard
+              icon={KeyRound}
+              label="Active keys"
+              value={apiUsage.data?.totals.distinctKeys}
+              sub={apiUsage.data ? `${apiUsage.data.totals.distinctUsers} users` : undefined}
+            />
+            <KpiCard
+              icon={TrendingUp}
+              label="Success rate"
+              value={
+                apiUsage.data && apiUsage.data.totals.requests > 0
+                  ? Math.round((apiUsage.data.totals.successes / apiUsage.data.totals.requests) * 100)
+                  : undefined
+              }
+              sub="%"
+            />
+          </div>
+
+          {/* Series chart + status breakdown */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5">
+              <Header icon={TrendingUp} title="Requests vs errors" subtitle="Daily volume on the public API" />
+              {apiUsage.data && apiUsage.data.series.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={apiUsage.data.series}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" />
+                    <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={shortDay} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip
+                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }}
+                      labelFormatter={shortDay}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="requests" name="Requests" fill="#6366f1" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="errors" name="Errors" fill="#ef4444" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <Skeleton className="h-[220px]" />}
+            </div>
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={Activity} title="Status mix" subtitle="HTTP status code distribution" />
+              {apiUsage.data && apiUsage.data.totals.requests > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: "2xx OK",      value: apiUsage.data.statusBreakdown.ok2xx },
+                        { name: "3xx Redirect", value: apiUsage.data.statusBreakdown.redirect3xx },
+                        { name: "4xx Client",   value: apiUsage.data.statusBreakdown.client4xx },
+                        { name: "5xx Server",   value: apiUsage.data.statusBreakdown.server5xx },
+                      ].filter((d) => d.value > 0)}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={75}
+                      paddingAngle={2}
+                    >
+                      {["#10b981", "#06b6d4", "#f59e0b", "#ef4444"].map((c, i) => (
+                        <Cell key={i} fill={c} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 10 }} verticalAlign="bottom" />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : <Skeleton className="h-[220px]" />}
+            </div>
+          </div>
+
+          {/* Top endpoints + Top keys + Top errors */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={ExternalLink} title="Top endpoints" subtitle="Most-called routes" />
+              {apiUsage.data && apiUsage.data.topEndpoints.length > 0 ? (
+                <ul className="text-xs divide-y divide-border/40 max-h-[260px] overflow-y-auto">
+                  {apiUsage.data.topEndpoints.map((e, i) => (
+                    <li key={`${e.endpoint}-${i}`} className="flex items-center justify-between py-1.5 gap-2">
+                      <span className="font-mono text-[10.5px] truncate flex-1" title={e.endpoint}>{e.endpoint}</span>
+                      <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                        {e.count.toLocaleString()}
+                        {e.errorRate > 0 && (
+                          <span className="ml-1.5 text-rose-500">{Math.round(e.errorRate * 100)}% err</span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">No traffic in this window</p>}
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={KeyRound} title="Top API keys" subtitle="Highest-volume callers" />
+              {apiUsage.data && apiUsage.data.topKeys.length > 0 ? (
+                <ul className="text-xs divide-y divide-border/40 max-h-[260px] overflow-y-auto">
+                  {apiUsage.data.topKeys.map((k, i) => (
+                    <li key={`${k.apiKeyId || "k"}-${i}`} className="py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium truncate">{k.name}</p>
+                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{k.count.toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <p className="font-mono text-[10px] text-muted-foreground/80 truncate">
+                          {k.prefix && k.last4 ? `${k.prefix}…${k.last4}` : "—"}
+                          {k.userEmail && <span className="ml-1.5 text-muted-foreground/60">· {k.userEmail}</span>}
+                        </p>
+                        {k.errorRate > 0 && (
+                          <span className="text-[10px] text-rose-500 shrink-0">
+                            {Math.round(k.errorRate * 100)}% err
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">No API key activity</p>}
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-5">
+              <Header icon={AlertTriangle} title="Top error codes" subtitle="What's failing" />
+              {apiUsage.data && apiUsage.data.topErrors.length > 0 ? (
+                <ul className="text-xs divide-y divide-border/40 max-h-[260px] overflow-y-auto">
+                  {apiUsage.data.topErrors.map((e, i) => (
+                    <li key={`${e.errorCode}-${i}`} className="flex items-center justify-between py-1.5 gap-2">
+                      <span className="font-mono text-[10.5px] truncate flex-1">{e.errorCode}</span>
+                      <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{e.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">No errors in this window</p>}
             </div>
           </div>
         </section>

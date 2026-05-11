@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
              COUNT(*)::int AS count
       FROM page_views
       WHERE "createdAt" >= ${start}
-      GROUP BY referrer
+      GROUP BY 1
       ORDER BY count DESC
       LIMIT 12
     `,

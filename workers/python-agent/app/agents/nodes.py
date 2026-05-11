@@ -202,10 +202,13 @@ async def extract_template(state: PPTGenerationState) -> dict:
 
     template_key = state.get("template_s3_key", "")
     if not template_key:
-        logger.info("no_template_provided, using defaults")
+        # Preserve any theme_config the worker seeded from a selected style
+        # profile — wiping it here would force slide_writer back to a generic palette.
+        existing = state.get("theme_config", {}) or {}
+        logger.info("no_template_provided, preserving_seed_theme", has_seed=bool(existing))
         await publisher.publish("extract_template", 0.1, "No template provided, using defaults")
         await publisher.close()
-        return {"theme_config": {}, "current_phase": "extract_template"}
+        return {"theme_config": existing, "current_phase": "extract_template"}
 
     try:
         extractor = ThemeExtractor()
@@ -625,31 +628,222 @@ async def outline_review(state: PPTGenerationState) -> dict:
 
 
 PPTXGENJS_API_REFERENCE = """
-## pptxgenjs Quick Reference
+## pptxgenjs Reference — full shape & chart vocabulary
 
-Slide: 13.33" x 7.5" (LAYOUT_WIDE). Colors: 6-char hex WITHOUT # prefix.
+Slide: 13.33" x 7.5" (LAYOUT_WIDE). Colors: 6-char hex WITHOUT '#'. `slide` and
+`pres` are already in scope — never call `pres.addSlide()` yourself.
 
-### API
-slide.background = { color: "HEX" };
-slide.addText("text", { x, y, w, h, fontSize, fontFace, color, bold, align, valign });
-slide.addText([{ text: "line", options: { bold: true, breakLine: true } }], { x, y, w, h });
-slide.addShape(pres.shapes.RECTANGLE, { x, y, w, h, fill: { color: "HEX" }, rectRadius: 0.1 });
-slide.addShape(pres.shapes.LINE, { x, y, w, h: 0, line: { color: "HEX", width: 2 } });
-slide.addTable(rows, { x, y, w, colW: [3,5,5], autoPage: false, border: { pt: 0.5, color: "E0E0E0" } });
-slide.addChart(pres.charts.BAR, [{ name: "S1", labels: [...], values: [...] }], { x, y, w, h, chartColors: ["HEX"], showValue: true });
-slide.addImage({ path: "https://...", x, y, w, h });
+### Backgrounds  (ONLY these two forms — anything else crashes pptxgenjs)
+slide.background = { color: "HEX" };          // solid color (most common)
+slide.background = { path: "https://..." };   // image background
+// DO NOT write `slide.background = { fill: { ... } }` — pptxgenjs has a bug
+// where it assigns the whole fill object onto .color and the renderer dies.
 
-### Table cell format
-{ text: "Header", options: { fill: { color: "1A1A2E" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center" } }
+### Text
+slide.addText("text", { x, y, w, h, fontSize, fontFace, color, bold, italic,
+    align: "left"|"center"|"right", valign: "top"|"middle"|"bottom",
+    charSpacing, lineSpacingMultiple, fit: "shrink"|"resize", autoFit, paraSpaceAfter });
+// Multi-run rich text:
+slide.addText([
+  { text: "Eyebrow", options: { color: "Vivid", bold: true, fontSize: 10, charSpacing: 2, breakLine: true } },
+  { text: "Big claim", options: { color: "Ink", bold: true, fontSize: 36, breakLine: true } },
+  { text: "Supporting line", options: { color: "555555", fontSize: 14 } },
+], { x, y, w, h });
+// Bullets:
+slide.addText([{ text: "Item", options: { bullet: { type: "bullet" }, breakLine: true } }], { x, y, w, h });
 
-### Layout grid (use these coordinates)
-Header: y: 0.3 to 1.2 | Content: y: 1.3 to 6.8 | Slide number: x:12.5, y:7.0
-2-col: [x:0.5 w:6.0] [x:6.8 w:6.0]
-3-col: [x:0.5 w:3.9] [x:4.7 w:3.9] [x:8.9 w:3.9]
+### Shapes — `pres.shapes.<NAME>` (use any of these by NAME)
+RECTANGLE, ROUNDED_RECTANGLE, OVAL, LINE, TRIANGLE (= ISOSCELES_TRIANGLE),
+RIGHT_TRIANGLE, DIAMOND, PARALLELOGRAM, TRAPEZOID, NON_ISOSCELES_TRAPEZOID,
+PENTAGON (house shape — useful for "next" steps), REGULAR_PENTAGON,
+HEXAGON, HEPTAGON, OCTAGON, DECAGON, DODECAGON,
+CHEVRON, RIGHT_ARROW, LEFT_ARROW, UP_ARROW, DOWN_ARROW, LEFT_RIGHT_ARROW,
+NOTCHED_RIGHT_ARROW, STRIPED_RIGHT_ARROW, BENT_ARROW, U_TURN_ARROW,
+CIRCULAR_ARROW, CURVED_RIGHT_ARROW, CURVED_DOWN_ARROW, SWOOSH_ARROW, QUAD_ARROW,
+HEART, STAR_4_POINT, STAR_5_POINT, STAR_6_POINT, STAR_8_POINT, STAR_12_POINT,
+SUN, MOON, CLOUD, LIGHTNING_BOLT, TEAR, PLAQUE, FRAME, HALF_FRAME, BEVEL,
+CAN, CUBE, DONUT, BLOCK_ARC, ARC, PIE_WEDGE, FUNNEL, GEAR_6, GEAR_9, WAVE,
+DOUBLE_WAVE, DOWN_RIBBON, UP_RIBBON, LEFT_RIGHT_RIBBON, EXPLOSION1, FOLDED_CORNER,
+DIAGONAL_STRIPE, CORNER, CORNER_TABS, CHORD,
+RECTANGULAR_CALLOUT, ROUNDED_RECTANGULAR_CALLOUT, OVAL_CALLOUT, CLOUD_CALLOUT,
+LINE_CALLOUT_1, LINE_CALLOUT_2, LINE_CALLOUT_1_ACCENT_BAR,
+FLOWCHART_PROCESS, FLOWCHART_DECISION, FLOWCHART_CONNECTOR, FLOWCHART_TERMINATOR,
+FLOWCHART_DOCUMENT, FLOWCHART_DATA, FLOWCHART_PREDEFINED_PROCESS,
+FLOWCHART_MANUAL_INPUT, FLOWCHART_MERGE, FLOWCHART_ALTERNATE_PROCESS
 
-### Rules
-- No "#" in colors. Fresh {} per call. No elements outside 0–13.33 x 0–7.5.
-- Text inside card: card.x+0.2 <= text.x, text.x+text.w <= card.x+card.w-0.2
+### Shape options — fill, line, gradient, shadow, rotation
+slide.addShape(pres.shapes.HEXAGON, {
+  x, y, w, h,
+  fill: { color: "0F62FE", transparency: 10 },        // 0=opaque, 100=transparent
+  line: { color: "161616", width: 1.25, dashType: "solid"|"dash"|"dot" },
+  rectRadius: 0.1,                                     // ROUNDED_RECTANGLE only
+  rotate: 30,                                          // degrees
+  shadow: { type: "outer", color: "000000", opacity: 0.25, blur: 8, offset: 4, angle: 45 },
+  flipH: true, flipV: false,
+});
+// Gradient fill: pptxgenjs accepts a fill with multiple colors via "type":"gradient"
+// (best supported via two-color shapes layered with transparency).
+
+### Table — beautiful, alternating, accented
+const headerOpts = { fill: { color: "0F62FE" }, color: "FFFFFF", bold: true, fontSize: 11, align: "center", valign: "middle" };
+const cellOpts   = { fontSize: 11, color: "161616", valign: "middle" };
+const rowEven    = { fill: { color: "F4F4F4" } };
+slide.addTable([
+  [ { text: "Metric", options: headerOpts }, { text: "Q3", options: headerOpts }, { text: "Q4", options: headerOpts } ],
+  [ { text: "Revenue", options: { ...cellOpts, ...rowEven, bold: true } }, { text: "$12.4M", options: { ...cellOpts, ...rowEven } }, { text: "$15.1M", options: { ...cellOpts, ...rowEven } } ],
+  [ { text: "Margin",  options: cellOpts }, { text: "32%",    options: cellOpts }, { text: "38%",    options: cellOpts } ],
+], { x, y, w, colW: [4, 4, 4], autoPage: false, border: { pt: 0.5, color: "E5E7EB" }, fontSize: 11 });
+
+### Charts — `pres.charts.<TYPE>`
+Available types: BAR, LINE, PIE, DOUGHNUT, AREA, RADAR, SCATTER, BUBBLE, BAR3D
+slide.addChart(pres.charts.BAR, [
+  { name: "FY24", labels: ["Q1","Q2","Q3","Q4"], values: [3.1, 4.2, 5.0, 6.3] },
+  { name: "FY25", labels: ["Q1","Q2","Q3","Q4"], values: [4.8, 5.9, 7.1, 8.4] },
+], {
+  x, y, w, h,
+  chartColors: ["0F62FE", "DA1E28"],
+  showLegend: true, legendPos: "b", legendFontSize: 10,
+  showValue: true, dataLabelFontSize: 9,
+  catAxisLabelFontSize: 10, valAxisLabelFontSize: 10,
+  catAxisTitle: "Quarter", catAxisTitleFontSize: 10, showCatAxisTitle: true,
+  valAxisTitle: "Revenue ($M)", valAxisTitleFontSize: 10, showValAxisTitle: true,
+  catGridLine: { style: "none" },
+  valGridLine: { style: "solid", size: 0.5, color: "E5E7EB" },
+  barDir: "col", barGapWidthPct: 60,
+});
+
+### Images
+slide.addImage({ path: "https://...", x, y, w, h, sizing: { type: "contain", w, h } });
+
+### Layout grid (treat the slide as a 12-column grid with 0.5" outer margin)
+Outer margin: x in [0.5, 12.83], y in [0.3, 7.2]
+Header band:  y: 0.3 → 1.2 (eyebrow + title)
+Content band: y: 1.3 → 6.7 (the visual)
+Footer band:  y: 6.8 → 7.2 (caption / page no.)
+
+2-col: [x:0.5  w:6.0] [x:6.83 w:6.0]
+3-col: [x:0.5  w:3.9] [x:4.7  w:3.9] [x:8.93 w:3.9]
+4-col: [x:0.5  w:2.85][x:3.6  w:2.85][x:6.7  w:2.85][x:9.8 w:2.85]
+
+### Hard rules (any violation is a defect)
+- No '#' in hex colors.  Always 6 chars.
+- Fresh `{}` literal per addText / addShape / addTable / addChart / addImage call.
+- Every element fits inside [0, 13.33] x [0, 7.5].
+- Text inside a card: text.x >= card.x + 0.18 AND text.x + text.w <= card.x + card.w - 0.18.
+- Tables: set explicit colW that sums to <= the table w.
+- Never overlap two opaque shapes occupying the same x,y,w,h footprint.
+
+### COLOR HANDLING RULES — strict, violations crash the renderer
+- `color` is ALWAYS a 6-char hex string. Nothing else. No objects, no arrays, no numbers.
+- `transparency` is ONLY valid INSIDE a shape's `fill: { color: "...", transparency: N }`.
+  • Do NOT put `transparency` at the root of `addText` options.
+  • Do NOT put `transparency` at the root of `addShape` options — only inside `fill`.
+  • For text, use a lighter hex code instead (e.g. instead of "color: '0F62FE', transparency: 70",
+    pick a tint like 'A8C2FF' that visually matches the desired faded primary).
+- `chartColors` must be a plain array of 6-char hex strings: ["0F62FE", "10B981", ...].
+- Table cell `fill` is `{ color: "HEX" }` only. Never an object with extra keys.
+- Border on a table is `{ pt: number, color: "HEX" }` — nothing else.
+- For dim/ghost numerals (e.g. "01" behind a card), use a soft tint hex
+  (CBD5E1, E5E7EB, F1F5F9) — DO NOT use transparency on text.
+
+### SVG-as-image — your gradient and 3D escape hatch
+pptxgenjs cannot do gradient fills, perspective tilts, glass/glow effects,
+hot-spot lighting, or rotated parallelograms with rounded corners natively.
+For ONE or TWO showpiece visuals per deck (cover hero, the marquee diagram,
+a stunning section divider), drop down to SVG. Native shapes still rule for
+text, tables, charts, KPI cards, and standard diagrams — the SVG escape is
+for the centerpiece visual that has to look art-directed.
+
+A helper `embedSvg(svgString, { x, y, w, h, rotate?, transparency? })` is in
+scope. You write SVG as a normal string; it handles base64 + data-URI for you.
+
+When SVG earns its place:
+  • Multi-stop gradients (vivid hero card with green→blue→purple→red).
+  • Radial "hot spot" lighting in a corner of a card.
+  • Glass/shimmer overlay (low-opacity white linear gradient).
+  • Concentric arc decoratives behind content (depth without clutter).
+  • Stacked perspective parallelogram cards (rotated rounded rectangles).
+  • Anything that needs `filter`, `mask`, or `gradientTransform`.
+
+Do NOT replace the entire slide with one giant SVG — text inside SVG is not
+editable in PowerPoint. Compose: SVG as the visual layer, native pptxgenjs
+addText / addTable / addChart on TOP for editable copy.
+
+#### The geometry insight (use it everywhere)
+Complex shapes are usually simple shapes with a transform. A parallelogram
+is a rotated rectangle. A 3D-stacked deck is rotated rounded rectangles at
+regular x/y offsets. Reverse-engineer the tilt with arctan, then use SVG's
+`transform="translate(cx, cy) rotate(θ)"` and draw a normal rect centered
+at origin — you get rounded corners and proper geometry for free.
+
+Example pattern (rotated gradient card with hot-spot, 11.65° tilt):
+```
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560">
+  <defs>
+    <linearGradient id="g0" x1="0" x2="640" y1="0" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#4A9B6C"/>
+      <stop offset="40%"  stop-color="#3060C8"/>
+      <stop offset="75%"  stop-color="#7230B8"/>
+      <stop offset="100%" stop-color="#C83850"/>
+    </linearGradient>
+    <radialGradient id="hot0" cx="88%" cy="18%" r="55%" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#DD2244" stop-opacity="0.88"/>
+      <stop offset="60%"  stop-color="#DD2244" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#DD2244" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(440 138) rotate(-11.65)">
+    <rect x="-320" y="-44" width="640" height="88" rx="20" ry="20" fill="url(#g0)"/>
+    <rect x="-320" y="-44" width="640" height="88" rx="20" ry="20" fill="url(#hot0)"/>
+  </g>
+</svg>`;
+embedSvg(svg, { x: 1.0, y: 1.0, w: 8.0, h: 5.6 });
+slide.addText('Experience layer', { x: 2.0, y: 2.7, w: 4, h: 0.5, color: 'FFFFFF', fontSize: 16, bold: true });
+```
+
+Notes for SVG specifically:
+  • Always set viewBox so the SVG scales cleanly to whatever {w, h} you pick.
+  • Inside `<defs>` put gradients/filters; reference by `url(#id)`.
+  • For glass shimmer: layer a second white→transparent linear gradient on top.
+  • For depth: 4-8 concentric `<circle>` strokes at low opacity behind the focal element.
+  • Text *inside* SVG renders but isn't editable — keep important copy on the
+    pptxgenjs side via `slide.addText` over the embedded SVG.
+
+### Gradient toolkit — ranked by control vs effort
+When you need a gradient effect on a shape, pick the cheapest tool that fits:
+  1. **SVG image via embedSvg** — full control, multi-stop, radial, mesh.
+     Use for the centerpiece visual where the gradient HAS to be precise.
+  2. **Stacked semi-transparent rectangles** — two or three overlapping
+     ROUNDED_RECTANGLEs at the same x/y/w/h with `fill: { color, transparency }`
+     in different palette tints. Approximates a soft 2-stop gradient with
+     zero SVG. Good for accent bars, card backdrops, faded hero panels.
+  3. **Background image** — if the entire slide background needs a gradient,
+     bake it into one SVG and set `slide.background = { path: dataUrl }`.
+  4. **Single solid + tint sibling** — when a "subtle gradient" really just
+     means "solid with a slightly lighter strip on top," two solid rects
+     beat a real gradient every time.
+
+### Mental model for hard slides — apply when the slide has to dazzle
+1. **Decompose first, code second.** Layer it: background → decoratives →
+   primary visual → supporting text. Build in that order.
+2. **Find the constraint early.** The hardest element (gradient, perspective,
+   3D stack) decides your tool: native shapes → SVG → image. Choose in the
+   first 30 seconds and design around it.
+3. **Visual hierarchy through color.** The most important element gets the
+   most saturated, multi-color treatment. Supporting elements get progressively
+   muted. Don't make everything equally vivid — the eye has nowhere to land.
+4. **Depth through layering.** Multiple overlapping semi-transparent elements
+   at different opacities create believable depth. A glass shimmer on a card,
+   a faint arc field behind a diagram, a radial glow in a corner — each adds
+   1-2 % of polish; together they make the slide feel designed.
+5. **Geometry as transforms.** A parallelogram is a rotated rectangle. A
+   stacked 3D deck is rotated rectangles at regular offsets. Hexagonal grid
+   is one hexagon translated on a 60° lattice. Recognize the transform and
+   the math collapses.
+6. **Precise coordinates.** The gap between "designed" and "AI slop" is whether
+   things actually align. Compute centers and gaps mathematically — never
+   guess. If you have 3 cards across 12.33" of usable width with 0.25" gaps,
+   that's `cardW = (12.33 - 2*0.25) / 3 = 3.94`, not "looks about 4".
 """
 
 
@@ -683,19 +877,120 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     summary = state.get("research_summary", "")
     prompt = state.get("user_prompt", "")
     style_guide = state.get("style_guide", "")
+    visual_style = state.get("visual_style", {}) or {}
+    layout_patterns = state.get("layout_patterns", []) or []
+    theme_config = state.get("theme_config", {}) or {}
     num_slides = state.get("num_slides", len(outline))
 
     outline_text = json.dumps(outline, indent=2)
 
+    # Resolve the brand palette into a flat dict of role → hex. Both shapes are
+    # supported: legacy flat (accent1/dk1/lt1) and seeded nested (colors.primary, ...).
+    locked_palette: dict[str, str] = {}
+    if isinstance(theme_config, dict) and theme_config:
+        nested = theme_config.get("colors") if isinstance(theme_config.get("colors"), dict) else None
+        if nested:
+            # Seeded format — semantic role names
+            for role in ("primary", "secondary", "accent1", "accent2", "accent3", "accent4",
+                         "background", "surface", "text_primary", "text_muted", "text_inverse"):
+                v = nested.get(role)
+                if isinstance(v, str) and v:
+                    locked_palette[role] = v.lstrip("#").upper()
+        else:
+            # Legacy flat format — OOXML keys
+            for role in ("accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
+                         "dk1", "lt1", "dk2", "lt2", "hlink"):
+                v = theme_config.get(role) if isinstance(theme_config.get(role), str) else None
+                if v:
+                    locked_palette[role] = v.lstrip("#").upper()
+
+    has_locked_palette = bool(locked_palette)
+    has_style_profile = bool(style_guide or visual_style or has_locked_palette)
+
     # Only use knowledge graph + style when a style profile was explicitly selected
     style_section = ""
+    palette_section = ""
     kg_section = ""
-    if style_guide:
-        style_section = (
-            "\n\n## Visual Style from Reference Deck (user selected a style profile)\n"
-            "Use this as INSPIRATION, not a rigid template:\n"
-            f"{style_guide[:3000]}\n"
+    if has_locked_palette:
+        # Build a deterministic palette block the LLM must reuse verbatim across every slide.
+        ordered_keys = [
+            ("primary", "Primary — anchor of the brand; titles, header bars, primary buttons"),
+            ("secondary", "Secondary — supporting structural color"),
+            ("accent1", "Accent 1 — first emphasis (KPI numbers, key icon, active states)"),
+            ("accent2", "Accent 2 — second emphasis, comparisons, secondary highlight"),
+            ("accent3", "Accent 3 — tertiary; charts and decorative"),
+            ("accent4", "Accent 4 — sparingly, for diversity in charts/grids"),
+            ("background", "Background — full-slide background on light slides"),
+            ("surface", "Surface — card / panel fill on light backgrounds"),
+            ("text_primary", "Text Primary — body and table text on light surfaces"),
+            ("text_muted", "Text Muted — captions, eyebrows, secondary copy"),
+            ("text_inverse", "Text Inverse — text on dark/primary backgrounds"),
+            ("dk1", "Dark 1 (legacy) — main dark"),
+            ("lt1", "Light 1 (legacy) — main light"),
+            ("dk2", "Dark 2 (legacy)"),
+            ("lt2", "Light 2 (legacy)"),
+            ("accent5", "Accent 5 (legacy)"),
+            ("accent6", "Accent 6 (legacy)"),
+            ("hlink", "Hyperlink (legacy)"),
+        ]
+        rows = []
+        for k, desc in ordered_keys:
+            if k in locked_palette:
+                rows.append(f"  {k:<14} {locked_palette[k]}   {desc}")
+        palette_block = "\n".join(rows)
+
+        palette_section = (
+            "\n\n## LOCKED BRAND PALETTE — USE THESE EXACT HEX CODES, NOTHING ELSE\n"
+            "The user selected a brand style profile. Every slide in this deck must use\n"
+            "ONLY the hex codes below for fills, text, lines, and chart series. Do NOT\n"
+            "invent additional colors. Do NOT lighten or darken these except via\n"
+            "`fill: { color, transparency: N }` (transparency is fine).\n\n"
+            f"{palette_block}\n\n"
+            "Application rules:\n"
+            "  • Title slide background: dark variant (text_primary or accent1).\n"
+            "  • Content slides: background or surface as base; text_primary for body.\n"
+            "  • At most 3 brand accents per slide — pick from {primary, accent1, accent2, accent3}.\n"
+            "  • Chart series colors: pull from primary + accent1..accent4 in order.\n"
+            "  • Hover/active emphasis: accent1.\n"
+            "  • Negative/warn signals: only use accent2 if it is reddish; otherwise reach\n"
+            "    for a single muted gray (text_muted) — never invent a red.\n"
         )
+
+    if has_style_profile:
+        parts = []
+        if style_guide:
+            parts.append(
+                "## Visual Style Guide from Brand Profile\n"
+                "Treat this as a binding contract — match these patterns:\n"
+                f"{style_guide[:3500]}\n"
+            )
+        if visual_style:
+            # Keep the most useful subset short and tight.
+            vs_lines = []
+            for key in ("design_language", "brand_personality", "typography_treatment",
+                        "typography_hierarchy", "color_usage", "color_discipline",
+                        "spacing", "spacing_pattern", "info_density", "content_density",
+                        "composition", "visual_hierarchy", "decoratives", "graphic_elements",
+                        "photography", "icons", "chart_style"):
+                v = visual_style.get(key)
+                if isinstance(v, str) and v:
+                    vs_lines.append(f"  • {key.replace('_', ' ').title()}: {v}")
+            if vs_lines:
+                parts.append("## Visual Style Attributes (from analyzed reference decks)\n" + "\n".join(vs_lines))
+        if layout_patterns:
+            lp_lines = []
+            for lp in layout_patterns[:8]:
+                if isinstance(lp, dict):
+                    desc = lp.get("description") or lp.get("layout_type") or ""
+                    elems = lp.get("typical_elements") or []
+                    if desc:
+                        elem_str = ", ".join(elems[:6]) if isinstance(elems, list) else ""
+                        lp_lines.append(f"  • {desc}" + (f"  ({elem_str})" if elem_str else ""))
+            if lp_lines:
+                parts.append("## Layout Patterns the Source Deck Uses (mirror these)\n" + "\n".join(lp_lines))
+        if parts:
+            style_section = "\n\n" + "\n\n".join(parts) + "\n"
+
         kg_context = _get_knowledge_graph_context(state)
         if kg_context:
             kg_section = f"\n\n## User's Design Preferences\n{kg_context[:1000]}"
@@ -821,6 +1116,8 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         PPTXGENJS_API_REFERENCE,
     ]
 
+    if palette_section:
+        sys_parts.append(palette_section)
     if style_section:
         sys_parts.append(style_section)
     if kg_section:
@@ -830,10 +1127,208 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     if use_diagram_images:
         sys_parts.append(diagram_section)
 
+    # ── Step 3 (color) is conditional on whether a brand palette is locked ──
+    if has_locked_palette:
+        step3_color = (
+            "## Step 3 — Use the LOCKED BRAND PALETTE\n"
+            "A palette is already locked above. Do not deviate from it. Do not\n"
+            "introduce a 'Vivid' or 'Warm' that isn't listed. The user has chosen\n"
+            "this brand identity and every slide must reinforce it.\n"
+            "  • Title / hero slide: background = primary (or text_primary if very dark);\n"
+            "    foreground text = text_inverse.\n"
+            "  • Content slides: background = background; cards = surface; body = text_primary.\n"
+            "  • Eyebrow + section markers: accent1.\n"
+            "  • Pull-quote and stat hero numerals: primary or accent1.\n"
+            "  • Chart series in this exact order: primary, accent1, accent2, accent3, accent4.\n"
+            "  • Tables: header row fill = primary, header text = text_inverse, body cells\n"
+            "    alternate background and surface.\n"
+        )
+    else:
+        step3_color = (
+            "## Step 3 — Color Like a Designer (TOPIC- and ORG-DRIVEN)\n"
+            "You completed Step 0 already and committed to a 5-role palette.  For the rest of\n"
+            "the deck use ONLY those hex codes.  No new colors.  Reference table from Step 0:\n"
+            "  Ink (text on light)  /  Primary (titles, header bars)  /  Accent (KPIs, eye-anchor)\n"
+            "  Surface (cards)       /  Background (slide bg)  /  Optional Warm (negatives only).\n\n"
+            "Application rules:\n"
+            "  • At most 3 of {Primary, Accent, Warm} per slide.\n"
+            "  • Accent is reserved for what the eye should land on FIRST.\n"
+            "  • Title / cover slide: Ink or Primary fill, light text.\n"
+            "  • Content slides: Background as the slide fill, Surface for cards.\n"
+            "  • Never use a saturated accent as a full-slide background.\n"
+            "  • Body text on light = Ink; body text on dark = FFFFFF.\n"
+        )
+
+    # Step 0 only runs when there is no locked brand palette — it forces the
+    # model to deliberately choose a palette from the prompt's signals before
+    # touching any slide.
+    if not has_locked_palette:
+        step0_color_analysis = (
+            "## Step 0 — Topic, Org & Use-case Color Analysis (do this BEFORE any slide)\n"
+            "No brand style profile was selected.  You must derive ONE palette and lock it\n"
+            "for the entire deck.  Be deliberate; do not default to navy + cyan.\n\n"
+            "1. Read the user's prompt and outline. Extract:\n"
+            "     a) Any company/organization names (e.g. Stripe, Notion, Salesforce, ICICI,\n"
+            "        Wipro, IBM, Mastercard, Apollo, Snowflake, Anthropic, Figma, Shopify).\n"
+            "     b) Any product/tool names that have iconic brand colors\n"
+            "        (Slack purple, Snowflake cyan, Datadog purple, Notion gray, Stripe indigo, etc.).\n"
+            "     c) The industry / use-case domain (fintech, healthtech, devtools, AI, climate,\n"
+            "        consumer brand, SaaS, security, education, manufacturing, ops/SRE).\n"
+            "     d) The mood the prompt asks for (premium, urgent, optimistic, technical, fun).\n\n"
+            "2. Pick the palette in this order of precedence:\n"
+            "     • If a single org dominates the deck, use a palette derived from that brand's\n"
+            "       known visual identity (e.g. Stripe → indigo 635BFF + black + soft white;\n"
+            "       IBM → blue 0F62FE + black 161616 + cool gray; ICICI → maroon A6192E + navy 0F2C59;\n"
+            "       Wipro → purple 3D195B + teal 1AAEC3 + gold F8B944; Snowflake → cyan 29B5E8 + ink;\n"
+            "       Notion → black + warm off-white; Salesforce → blue 00A1E0).\n"
+            "     • If multiple orgs co-star, pick a NEUTRAL editorial palette (ink + premium\n"
+            "       gray + ONE distinctive accent that fits the use-case mood).\n"
+            "     • Otherwise pick the closest match below.\n\n"
+            "Industry palette library (reach here only after step 2 above fails):\n"
+            "  TECH / DEVTOOLS / SaaS         Ink 0E1116  Primary 1F6FEB  Accent 39D0D8  Surface F6F8FA\n"
+            "  AI / DATA / RESEARCH           Ink 1A1335  Primary 6D28D9  Accent 22D3EE  Surface FAF7FF\n"
+            "  FINANCE / BANKING / CORP       Ink 0F1B2D  Primary 0B6E4F  Accent D4AF37  Surface FAF7F0\n"
+            "  HEALTHCARE / BIOTECH           Ink 1B3A4B  Primary 2A9D8F  Accent F4A261  Surface F4F1ED\n"
+            "  SUSTAINABILITY / ENERGY        Ink 1B3A2B  Primary 2D6A4F  Accent F4A261  Surface F2EFE6\n"
+            "  MARKETING / BRAND / CONSUMER   Ink 2B1F3D  Primary E25E5E  Accent F2B134  Surface FFF8F0\n"
+            "  INCIDENT MGMT / OPS / SRE      Ink 0D1117  Primary 2563EB  Accent 10B981  Surface F1F5F9\n"
+            "  EDUCATION / LEARNING           Ink 273043  Primary 4361EE  Accent F77F00  Surface FBF7F0\n"
+            "  SECURITY / COMPLIANCE / RISK   Ink 1A1D29  Primary 334155  Accent C0392B  Surface F8FAFC\n"
+            "  CREATIVE / DESIGN / MEDIA      Ink 1A1A2E  Primary FF6B6B  Accent FFD93D  Surface FBF6F0\n\n"
+            "3. Once chosen, write the locked palette into the FIRST slide's `speaker_notes`\n"
+            "   in this exact format on its own line so a human can audit it:\n"
+            "     PALETTE: ink=#XXXXXX primary=#XXXXXX accent=#XXXXXX surface=#XXXXXX bg=#XXXXXX\n"
+            "4. From that point on, every slide in the deck must use ONLY those hex codes.\n"
+            "   Do not slip in another color halfway through.\n\n"
+        )
+    else:
+        step0_color_analysis = ""
+
+    enterprise_patterns = (
+        "## Enterprise Marketing Deck Patterns — Use Liberally\n"
+        "These are the patterns that make IBM / McKinsey / ICICI / Wipro / Mastercard\n"
+        "decks look enterprise.  Mix and match — never repeat the same pattern twice in\n"
+        "a row.  All coordinates assume LAYOUT_WIDE (13.33 × 7.5).\n\n"
+
+        "**Cover (slide 1) — Section number + giant claim on dark fill**\n"
+        "  • slide.background = primary (or ink) fill.\n"
+        "  • Tiny eyebrow at (x:0.6, y:0.6, fontSize:10, charSpacing:3, ALL CAPS, color:accent).\n"
+        "  • Hero claim at (x:0.6, y:2.4, w:11, h:2.6, fontSize:54-72, bold, color:text_inverse, ONE line if possible).\n"
+        "  • Hairline divider: addShape LINE at (x:0.6, y:5.4, w:2.0, h:0, color:accent, width:2).\n"
+        "  • Optional kicker line at (x:0.6, y:5.6, fontSize:14, color:text_inverse@70%).\n"
+        "  • Page anchor at lower right: small numerator (e.g. '01 / 12') in mono-feel.\n\n"
+
+        "**Section divider — Big numeral + section title**\n"
+        "  • OVERSIZED ghost numeral on left: addText('01', {x:0.6, y:1.0, w:5, h:5,\n"
+        "    fontSize:220, color: a soft tint hex like 'E5E7EB' or 'F1F5F9'} ) — never\n"
+        "    use transparency on text; pick a faded hex instead.\n"
+        "  • Section title overlapping it (x:1.5, y:3.0, fontSize:48, bold, color:ink).\n"
+        "  • Subtitle paragraph in surface band on right (x:7.0, y:3.0, w:5.5).\n\n"
+
+        "**Eyebrow + Title + 3 cards (the most-used enterprise content layout)**\n"
+        "  • Header band: eyebrow (10pt accent CAPS) + title (32pt ink bold).\n"
+        "  • Three cards in a 3-col grid at y:2.4 h:4.0.\n"
+        "  • Each card: ROUNDED_RECTANGLE fill:surface, 0.08\" accent top bar, big numeral or icon,\n"
+        "    card title (16pt bold ink), 2-3 line description (12pt text_muted).\n\n"
+
+        "**KPI row — 4 stats across the top**\n"
+        "  • Four equal cards y:1.5 h:1.8, fill:surface, with: 36pt accent bold numeral,\n"
+        "    11pt CAPS label below, optional 9pt delta (+12% vs Q3).\n"
+        "  • Below the KPI row: a single supporting chart (BAR or LINE) y:3.5 h:3.5.\n\n"
+
+        "**Process flow — chevron / hexagon timeline**\n"
+        "  • 5-7 CHEVRON shapes in a row, each w:2.0 h:0.9, alternating fill primary / accent1.\n"
+        "    OR 5-7 HEXAGON shapes evenly spaced with thin LINE connectors and step numerals inside.\n"
+        "  • Below each chevron: a 2-line caption (12pt ink) describing the step.\n\n"
+
+        "**Hierarchy / Org diagram**\n"
+        "  • Top ROUNDED_RECTANGLE at center (e.g. CEO / Vision).\n"
+        "  • Three children below connected by short vertical LINE segments,\n"
+        "    each child has 2-3 grandchildren as a tighter row of cards.\n"
+        "  • Use accent1 for the parent fill, surface for children, hairline borders.\n\n"
+
+        "**Pyramid / Maturity model**\n"
+        "  • 4-5 stacked TRAPEZOID shapes from narrow on top to wide at bottom (or inverted).\n"
+        "  • Each tier fill = primary at increasing transparency, label centered inside.\n\n"
+
+        "**Quadrant matrix (2×2 strategic positioning)**\n"
+        "  • Two crossing LINE shapes through center.\n"
+        "  • Axis labels at the four ends (10pt CAPS text_muted).\n"
+        "  • Place items as small ROUNDED_RECTANGLE chips with org/tool name; group color-coded by quadrant.\n\n"
+
+        "**Pull-quote slide (testimonial / leadership voice)**\n"
+        "  • Background: ink or primary.\n"
+        "  • Big opening quote glyph (60pt color:accent) at (x:0.8, y:1.0).\n"
+        "  • Quote body 28-32pt regular text_inverse with hard line breaks.\n"
+        "  • Attribution row: small avatar circle (OVAL) + name/role/company in 12pt at lower left.\n\n"
+
+        "**Comparison diptych (Before vs After)**\n"
+        "  • Two equal columns y:1.6 h:5.0.\n"
+        "  • Left card: addShape ROUNDED_RECTANGLE with fill: { color: 'F4F4F4', transparency: 0 }\n"
+        "    (use a near-white tint like F4F4F4 or F1F5F9 — do NOT use transparency on text).\n"
+        "  • Right card: addShape ROUNDED_RECTANGLE with fill: { color: surface_or_primary_tint }.\n"
+        "  • Column headers: 'BEFORE' / 'AFTER' eyebrow style (10pt accent CAPS).\n"
+        "  • Big metric in each column (e.g. 4 hr → 12 min) at 56pt; supporting bullets below.\n\n"
+
+        "**Closing / CTA slide**\n"
+        "  • Background: ink or primary.\n"
+        "  • Centered 40pt 'So what' line summarizing the deck's argument.\n"
+        "  • Below: a small CTA chip (ROUNDED_RECTANGLE accent fill, 14pt CAPS, white text).\n"
+        "  • Optional small signature line: presenter name + email/handle in 11pt.\n\n"
+
+        "## Native shape vocabulary you MUST use (RECTANGLE alone = boring)\n"
+        "Hard rule — every content slide must include AT LEAST ONE non-rectangle\n"
+        "shape (hexagon, chevron, trapezoid, pentagon, parallelogram, arrow,\n"
+        "donut, callout, etc.) carrying real text inside it. Decorative empty\n"
+        "shapes don't count — if you draw a hexagon, fill it with the step name.\n"
+        "Decks of 5+ slides must use AT LEAST 3 different shape families\n"
+        "across the deck so it doesn't visually flatline. Map content shape →\n"
+        "right primitive:\n"
+        "  • Sequential process (3-7 steps, short labels) → row of CHEVRON shapes,\n"
+        "    each filled with step number + name + 1-line caption underneath.\n"
+        "  • Lifecycle / feedback loop → 3-6 OVAL or HEXAGON nodes around a circle\n"
+        "    with CIRCULAR_ARROW or curved LINE connectors. Each node holds the\n"
+        "    phase title + 1-line action.\n"
+        "  • Maturity model / tiers / pyramid → 3-5 stacked TRAPEZOID shapes,\n"
+        "    widest at the base, each filled with tier name + 1-line description.\n"
+        "  • Pillars / parallel columns → 3-5 ROUNDED_RECTANGLE columns each\n"
+        "    with a HEXAGON or icon glyph at the top, then title + body text\n"
+        "    inside. NEVER a 4-bullet list.\n"
+        "  • Hub-and-spoke → central OVAL or HEXAGON with radiating LINE\n"
+        "    connectors to 4-6 outer ROUNDED_RECTANGLE cards.\n"
+        "  • Hierarchy / org-tree → top ROUNDED_RECTANGLE, vertical LINE\n"
+        "    connectors, second-row ROUNDED_RECTANGLE children. Add a third row\n"
+        "    when leaves exist.\n"
+        "  • Timeline / roadmap → horizontal LINE spine with HEXAGON or OVAL\n"
+        "    milestone markers; each marker has date above + caption below.\n"
+        "  • Quadrant matrix (SWOT / 2×2) → two crossing LINE shapes through\n"
+        "    center; 4 quadrant ROUNDED_RECTANGLE areas with axis labels at the\n"
+        "    ends. Each quadrant filled with header + 2-3 bullets.\n"
+        "  • Percentage / ratio call-out → DONUT or PIE_WEDGE filled to the\n"
+        "    correct angle, with the % number centered inside.\n"
+        "  • Stat annotation on a chart → RECTANGULAR_CALLOUT or\n"
+        "    LINE_CALLOUT_1_ACCENT_BAR pointing at the data point that matters.\n"
+        "  • 'Next step' or stage gate → PENTAGON (house plate) shape pointing\n"
+        "    forward, filled with the action.\n"
+        "  • Swim lane → PARALLELOGRAM for the lane label, ROUNDED_RECTANGLE\n"
+        "    for the activities.\n"
+        "  • Risk / incident / step-change → LIGHTNING_BOLT (small, accent\n"
+        "    color) on top of the relevant card.\n"
+        "  • Platform / engine / mechanism → small GEAR_6 next to the title.\n"
+        "  • Feedback / U-turn / rework loop → U_TURN_ARROW or BENT_ARROW.\n"
+        "  • Chevron-flow with body text under each step → row of CHEVRONs at\n"
+        "    y:1.6, body cards at y:2.6 directly under each chevron.\n\n"
+        "Fill-the-shape rule: every shape you draw must carry text or be a\n"
+        "connector. No 'just decorative' rectangles, no empty hexagons. The\n"
+        "structure exists to carry content.\n"
+    )
+
     sys_parts.append(
         "\n# DESIGNER'S MINDSET — APPLY TO EVERY SLIDE\n\n"
 
         f"## Your Audience\n{audience_brief}\n\n"
+
+        + step0_color_analysis +
 
         "## Step 1 — Understand the Slide's Job\n"
         "Before writing code, ask:\n"
@@ -842,91 +1337,123 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         "  3. What's the strongest visual format for THIS specific content?\n"
         "     • Numbers & metrics → stat callouts or addChart (BAR/LINE)\n"
         "     • Side-by-side comparison → addTable with zebra striping or 2-col cards\n"
-        "     • Process or flow → numbered steps with arrows, OR Kroki diagram\n"
+        "     • Process or flow → chevron / hexagon row OR Kroki diagram\n"
         "     • Categorization → 3-4 column card grid with colored top borders\n"
-        "     • Hierarchy → trapezoid pyramid or quadrant matrix\n"
+        "     • Hierarchy → trapezoid pyramid, hex grid, or org-tree\n"
         "     • Architecture → Kroki mermaid graph TD\n"
-        "     • Timeline → horizontal bars with phase labels OR Kroki gantt\n"
+        "     • Timeline → chevron row, gantt-style horizontal bars, or hexagon timeline\n"
         "     • A single big concept → hero stat (60pt+) with supporting context\n\n"
 
         "## Step 2 — Plan the Layout BEFORE Writing Code\n"
-        "Sketch mentally on the 13.33×7.5 grid:\n"
-        "  • Header zone (y: 0.3-1.2): section eyebrow + title.\n"
-        "  • Content zone (y: 1.3-6.5): the visual element of the slide.\n"
-        "  • Bottom (y: 6.5-7.2): caption or page number — never a thick footer bar.\n"
-        "Every element gets exact x, y, w, h that don't overlap. Use the column grid:\n"
-        "  • 2-col: x=0.5 w=6.0 | x=6.8 w=6.0\n"
-        "  • 3-col: x=0.5 w=3.9 | x=4.7 w=3.9 | x=8.9 w=3.9\n"
-        "  • 4-col: x=0.5 w=2.85 | x=3.6 w=2.85 | x=6.7 w=2.85 | x=9.8 w=2.85\n"
-        "Card padding: text inside a card MUST start at card.x+0.2 and end at card.x+card.w-0.2.\n\n"
+        "The whole discipline of this step: DECIDE EVERYTHING BEFORE YOU CODE.\n"
+        "When slides come out looking inconsistent or cramped, it's because\n"
+        "layout decisions were made mid-code instead of upfront. Run these\n"
+        "four sub-steps in order, then transcribe the plan into pptxgenjs.\n\n"
 
-        "## Step 3 — Color Like a Designer (TOPIC-DRIVEN)\n"
-        "DO NOT default to navy + cyan + red. Read the deck topic and pick ONE palette\n"
-        "from the library below that matches its mood. Every slide in this deck uses the\n"
-        "SAME palette — consistency over novelty per slide. Define your chosen palette\n"
-        "ONCE at the top of your work and reuse those exact hex codes throughout.\n\n"
-        "Palette library — pick the closest match to the topic, then commit:\n\n"
-        "  TECH / ENGINEERING / DEVTOOLS / SaaS — calm, authoritative, slightly future-leaning\n"
-        "    Ink 0E1116  Primary 1F6FEB  Vivid 39D0D8  Warm F78166  Surface F6F8FA\n"
-        "  AI / DATA SCIENCE / RESEARCH — forward-looking, intellectual\n"
-        "    Ink 1A1335  Primary 6D28D9  Vivid 22D3EE  Warm F472B6  Surface FAF7FF\n"
-        "  FINANCE / STRATEGY / EXECUTIVE — premium, trust-led, money-on-the-table\n"
-        "    Ink 0F1B2D  Primary 0B6E4F  Vivid D4AF37  Warm B91C1C  Surface FAF7F0\n"
-        "  HEALTHCARE / WELLNESS / BIOTECH — caring, clinical-clean\n"
-        "    Ink 1B3A4B  Primary 2A9D8F  Vivid F4A261  Warm E76F51  Surface F4F1ED\n"
-        "  SUSTAINABILITY / CLIMATE / ENERGY — earthy, regenerative\n"
-        "    Ink 1B3A2B  Primary 2D6A4F  Vivid F4A261  Warm E07856  Surface F2EFE6\n"
-        "  MARKETING / BRAND / CONSUMER — warm, expressive, contemporary\n"
-        "    Ink 2B1F3D  Primary E25E5E  Vivid F2B134  Warm 8A4FFF  Surface FFF8F0\n"
-        "  INCIDENT MGMT / OPS / RELIABILITY — operational, signal/noise contrast\n"
-        "    Ink 0D1117  Primary 2563EB  Vivid 10B981  Warm DC2626  Surface F1F5F9\n"
-        "  EDUCATION / LEARNING / TRAINING — friendly, approachable, structured\n"
-        "    Ink 273043  Primary 4361EE  Vivid F77F00  Warm EF476F  Surface FBF7F0\n"
-        "  SECURITY / COMPLIANCE / RISK — measured, sober, precise\n"
-        "    Ink 1A1D29  Primary 334155  Vivid C0392B  Warm F5B041  Surface F8FAFC\n"
-        "  CREATIVE / DESIGN / MEDIA — bold, expressive, art-direction-led\n"
-        "    Ink 1A1A2E  Primary FF6B6B  Vivid FFD93D  Warm 6BCB77  Surface FBF6F0\n\n"
-        "If NONE of the above fits, INVENT a 5-color palette by these rules:\n"
-        "  • Sample one near-black Ink (L<15%) and one near-white Surface (L>96%)\n"
-        "  • Pick a Primary — a saturated mid-lightness color the topic actually evokes\n"
-        "    (think of the industry's iconic colors: green for finance/growth, teal for\n"
-        "    health, violet for AI, etc.). NEVER reach for navy 0F3460 by default.\n"
-        "  • Pick a Vivid that is a complementary or analogous accent to Primary\n"
-        "  • Pick a Warm only if you actually need an alert/negative — leave blank otherwise\n"
-        "  • Use a color picker tool's logic in your head: WCAG AA contrast on text\n\n"
-        "Application rules:\n"
-        "  • At most 3 of {Primary, Vivid, Warm} per slide (Surface + text don't count)\n"
-        "  • Use Vivid sparingly — only on what you want the eye to land on first\n"
-        "  • Title slide: dark Ink background. Content slides: light Surface or white.\n"
-        "  • Never use bright colors as full-slide backgrounds — they fight the content.\n"
-        "  • Text: 333333 on light, FFFFFF on dark (override only for hex contrast<4.5:1)\n\n"
+        "### 2a. Content inventory (do this BEFORE thinking about position)\n"
+        "List EVERY text string the slide will carry: title, eyebrow, body lines,\n"
+        "stat numerals, captions, axis labels, footer/page number. For each,\n"
+        "tag it: HEADLINE / BODY / CAPTION / STAT-HERO / EYEBROW / META. You\n"
+        "cannot place a thing if you haven't named it. Skipping this is how\n"
+        "decks end up with 'Insert metric here' placeholders.\n\n"
+
+        "### 2b. Pick ONE horizontal pattern\n"
+        "Most slides fit one of these. Pick the one that matches your\n"
+        "dominant visual; commit; do not blend.\n"
+        "  Full-bleed     [        VISUAL         ]   (cover, pull-quote, hero stat)\n"
+        "  Two-column     [ TEXT  |  VISUAL ]         (compare, before/after, pillars)\n"
+        "  Left-heavy     [ TITLE+TEXT |  VISUAL  ]   (most content slides)\n"
+        "  Three-column   [ A | B | C ]               (3-card grid, KPI row)\n"
+        "  Stagger        [ NOTES |  CENTER  | NOTES ] (annotated diagram, layered cards)\n\n"
+
+        "### 2c. Map the VERTICAL grid with exact inch ranges\n"
+        "Reserve concrete y-ranges for each block; align elements across\n"
+        "columns so they breathe together. Concrete worked example for the\n"
+        "Stagger pattern (a layered-card diagram with side annotations):\n"
+        "  y=0.30→1.20   header band   (eyebrow + title)\n"
+        "  y=0.62→6.10   center visual (card stack image, 5.5 in tall)\n"
+        "  y=1.50→2.40   left note 1   (aligns with row-1 of the visual)\n"
+        "  y=2.70→3.55   left note 2   (aligns with row-2)\n"
+        "  y=1.50→2.30   right note 1  (aligns with row-1, right side)\n"
+        "  y=2.85→3.70   right note 2  (aligns with row-3)\n"
+        "  y=4.10→4.95   right note 3  (aligns with row-4)\n"
+        "  y=6.80→7.20   footer band   (page number, source)\n"
+        "The pattern: side annotations are vertically anchored to specific\n"
+        "rows of the central visual, so the eye connects them WITHOUT\n"
+        "needing connector lines.\n\n"
+
+        "### 2d. Lock the z-order (rendering order = layering)\n"
+        "pptxgenjs renders elements in the order you call them — later\n"
+        "calls appear on top. Plan the layers explicitly:\n"
+        "  Layer 1: slide.background = { color }      (slide bg)\n"
+        "  Layer 2: decorative shapes / accent bars   (low opacity, behind everything)\n"
+        "  Layer 3: structural shapes (cards, panels) (the boxes that carry content)\n"
+        "  Layer 4: gradient/SVG overlays             (only if needed for hero visual)\n"
+        "  Layer 5: icons, glyphs, oversized numerals (visual accents)\n"
+        "  Layer 6: body text                         (inside cards / panels)\n"
+        "  Layer 7: headlines + eyebrows              (on top of any backdrop)\n"
+        "  Layer 8: badges / page-number / footer     (always on top of everything else)\n"
+        "If a title is being eaten by a card stack, it's because the title\n"
+        "was added BEFORE the cards. Reorder, don't restyle.\n\n"
+
+        "### Column grid reference (use these exact x/w values)\n"
+        "  • 2-col: x=0.5 w=6.0  | x=6.83 w=6.0\n"
+        "  • 3-col: x=0.5 w=3.9  | x=4.7 w=3.9  | x=8.93 w=3.9\n"
+        "  • 4-col: x=0.5 w=2.85 | x=3.6 w=2.85 | x=6.7 w=2.85 | x=9.8 w=2.85\n"
+        "  • Stagger: left notes x=0.3 w=2.1 | center x=2.55 w=8.10 | right notes x=10.85 w=2.15\n"
+        "Card padding: text inside a card MUST start at card.x+0.2 and end at card.x+card.w-0.2.\n"
+        "Margins: nothing within 0.3\" of another block; nothing within 0.5\" of the slide edge.\n\n"
+
+        "### Find the HARD problem first\n"
+        "Before you start coding, ask: what's the hardest thing to render on\n"
+        "this slide? Gradients? Rotated parallelograms? Hot-spot lighting?\n"
+        "Glass shimmer? Concentric arc field? IF the answer is one of those,\n"
+        "the entire slide pivots to use the SVG escape hatch (see the\n"
+        "PPTXGENJS reference's SVG-as-image section). Decide this NOW, not\n"
+        "halfway through coding the slide.\n\n"
+
+        + step3_color + "\n"
 
         "## Step 4 — Typography Discipline\n"
-        "(Use the hex codes from YOUR chosen palette, not the labels.)\n"
-        "  • Section eyebrow:  10pt, bold, ALL CAPS, charSpacing: 2, color: Vivid\n"
-        "  • Slide title:      28-32pt, bold, color: Ink — ONE line, no wrapping if possible\n"
-        "  • Subtitle/lede:    14-16pt, regular, color: 555555\n"
-        "  • Body / cells:     11-12pt, color: 333333\n"
-        "  • Stat hero:        48-72pt, bold, color: Vivid or Primary\n"
-        "  • Stat label:       10pt, color: 666666 or 999999\n"
+        "(Use the hex codes from the locked palette, not the labels.)\n"
+        "  • Section eyebrow:  10pt, bold, ALL CAPS, charSpacing: 2, color: accent\n"
+        "  • Slide title:      28-32pt, bold, color: ink — ONE line if possible\n"
+        "  • Subtitle/lede:    14-16pt, regular, color: text_muted (or 555555)\n"
+        "  • Body / cells:     11-12pt, color: text_primary (or 333333)\n"
+        "  • Stat hero:        48-72pt, bold, color: primary or accent\n"
+        "  • Stat label:       10pt, color: text_muted\n"
         "  • Caption / footer: 9pt, italic, color: 999999\n"
         "Use breakLine:true between text array items. Always set valign for vertical centering inside cards.\n\n"
 
         "## Step 5 — Tables Must Be Beautiful\n"
-        "Boring tables ruin decks. Yours look like Stripe's docs:\n"
+        "Boring tables ruin decks. Yours look like a McKinsey appendix:\n"
         "  • colW MUST be set proportional to content (not equal widths).\n"
-        "  • Header row: bold white text on YOUR Ink or Primary fill, fontSize 11, align center.\n"
-        "  • Data rows alternate: even = YOUR Surface, odd = FFFFFF.\n"
+        "  • Header row: bold text_inverse on primary fill, fontSize 11, align center.\n"
+        "  • Data rows alternate: even = surface, odd = FFFFFF.\n"
         "  • Cell margin: [4, 8, 4, 8] (top, right, bottom, left in points).\n"
-        "  • Border: thin, color E0E0E0 (almost invisible).\n"
-        "  • Add a 0.08\" tall accent bar (YOUR Vivid) 0.05\" ABOVE the table for visual lift.\n"
+        "  • Border: thin, color E5E7EB (almost invisible).\n"
+        "  • Add a 0.08\" tall accent bar 0.05\" ABOVE the table for visual lift.\n"
         "  • One concept per cell — never cram two facts into one cell.\n\n"
 
-        "## Step 6 — Charts With Real Axes\n"
+        "## Step 6 — Charts With Real Axes (use them — and vary the type)\n"
+        "  • For any deck with 4+ slides, AT LEAST ONE slide must contain a real `addChart`.\n"
+        "    Decks with 8+ slides should use 2-3 different chart types (e.g. BAR + LINE + DOUGHNUT).\n"
         "  • addChart with proper catAxisTitle, valAxisTitle, showValue: true.\n"
-        "  • chartColors array length must match the data series count.\n"
+        "  • chartColors array length must match the data series count and pull from the palette\n"
+        "    (primary, accent1, accent2, accent3 in that order).\n"
         "  • Use real numbers from the research — never make up data.\n"
-        "  • catGridLine: { style: 'none' } for clean look. Hide value axis line on bar charts.\n\n"
+        "  • catGridLine: { style: 'none' } for clean look. Hide value axis line on bar charts.\n"
+        "  • Pick the right chart for the message:\n"
+        "      BAR    — ranked comparisons (revenue by region, MTTR by team)\n"
+        "      LINE   — time series, trends, before/after over months\n"
+        "      AREA   — cumulative growth, stacked composition over time\n"
+        "      DOUGHNUT — share-of-whole when slice count ≤ 5\n"
+        "      RADAR  — multi-attribute capability comparisons (3-6 axes)\n"
+        "      SCATTER — relationship between two metrics (cost vs reliability)\n"
+        "  • Add a small RECTANGULAR_CALLOUT or LINE_CALLOUT_1 to annotate the single most\n"
+        "    important data point — this turns a chart into a story.\n\n"
+
+        + enterprise_patterns + "\n"
 
         "## Step 7 — The Completion Bar\n"
         "Every slide must pass these checks before you ship it:\n"
@@ -937,25 +1464,54 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         "  ✓ No two elements occupy the same x,y,w,h\n"
         "  ✓ Real data from the research is used — no '[insert metric]' placeholders\n"
         "  ✓ At least one element draws the eye (a bold stat, a colored accent, an image)\n"
-        "  ✓ The slide answers ONE question, not three\n\n"
+        "  ✓ The slide answers ONE question, not three\n"
+        "  ✓ AT LEAST ONE non-rectangle shape carries content (hex, chevron,\n"
+        "    trapezoid, callout, donut, arrow, etc.) — RECTANGLE-only slides fail.\n"
+        "  ✓ Every shape on the slide carries text or is a connector (no empty\n"
+        "    decorative shapes that exist just to fill space).\n"
+        "  ✓ Every hex color is from the locked palette — no novel colors introduced.\n\n"
+
+        "## Deck-Wide Variety Bar (across the whole deck)\n"
+        "  ✓ Use AT LEAST 3 different shape families across the deck (e.g.\n"
+        "    chevron + hexagon + trapezoid, or donut + parallelogram + callout).\n"
+        "  ✓ Decks with 4+ slides include AT LEAST ONE addChart call.\n"
+        "  ✓ Decks with 8+ slides include 2-3 different chart types\n"
+        "    (mix BAR / LINE / DOUGHNUT / AREA / RADAR / SCATTER).\n"
+        "  ✓ At most 2 slides in a row share the same dominant layout — break\n"
+        "    monotony with a chart, a quote slide, or a chevron flow.\n\n"
 
         "## What NOT to Do (these are firing offenses)\n"
         "  ✗ Plain bullet list on a white slide\n"
+        "  ✗ A whole slide built only from RECTANGLE / ROUNDED_RECTANGLE shapes\n"
+        "  ✗ Empty decorative shapes that don't carry any text\n"
         "  ✗ Three giant colored blocks just to fill space\n"
         "  ✗ A 'Key Insights' label with no actual insight\n"
         "  ✗ Two cards with identical color and identical text styling — boring\n"
         "  ✗ Text that runs off the edge of its container\n"
         "  ✗ Footer bars that span the full width and add nothing\n"
         "  ✗ Logos floating on top of text\n"
-        "  ✗ A 30pt font in a 1-inch-tall card\n\n"
+        "  ✗ A 30pt font in a 1-inch-tall card\n"
+        "  ✗ Inventing a new hex code that wasn't in the locked palette.\n\n"
 
         "## Pacing Across the Deck (use the slide count)\n"
         f"This deck has {num_slides} slides. Vary rhythm so it doesn't feel monotonous:\n"
-        "  • Slide 1: Title — dark hero with ONE bold statement. No subtitle clutter.\n"
-        "  • Middle slides: alternate visual styles — table, then chart, then card grid, then diagram.\n"
+        "  • Slide 1: cover — primary or ink hero with ONE bold statement, no subtitle clutter.\n"
+        "  • Use a section divider before any logical group of 3+ content slides.\n"
+        "  • Middle slides: alternate visual styles — table, then chart, then card grid, then chevron flow, then pull-quote.\n"
         "  • Final slide: a closing 'so what' — the takeaway, the CTA, or the next steps.\n"
         "  • If the deck has 3 or fewer slides, every slide must be DENSE with insight.\n"
-        "  • If the deck has 10+ slides, use breathing room — one strong visual per slide.\n"
+        "  • If the deck has 10+ slides, use breathing room — one strong visual per slide.\n\n"
+
+        "## The meta-principle — why every step above matters\n"
+        "Decide everything before you code. Layout → constraints → shape\n"
+        "strategy → z-order → palette → text content. All of that is figured\n"
+        "out on paper (mentally) first; the pptxgenjs code is just\n"
+        "transcription of the plan. Slides that look like 'AI slop' are\n"
+        "almost always slides where layout decisions were made mid-code\n"
+        "instead of upfront — the result is misaligned, inconsistent, and\n"
+        "obviously cobbled together. The discipline of Steps 0-7 isn't\n"
+        "bureaucracy; it's what separates a god-tier deck from generic\n"
+        "output. Run them in order, every time.\n"
     )
 
     if is_creative:
@@ -1101,6 +1657,33 @@ def _parse_slide_codes(raw: str) -> list[dict]:
     start = cleaned.find("[")
     end = cleaned.rfind("]")
     if start == -1 or end == -1:
+        # Fallback: model returned a single {slide_number, title, code, ...}
+        # object instead of an array. Wrap it.
+        obj_start = cleaned.find("{")
+        obj_end = cleaned.rfind("}")
+        if obj_start != -1 and obj_end != -1 and obj_end > obj_start:
+            single = cleaned[obj_start : obj_end + 1]
+            try:
+                parsed = json.loads(single)
+                if isinstance(parsed, dict) and "code" in parsed:
+                    parsed.setdefault("slide_number", 1)
+                    parsed.setdefault("title", parsed.get("title", "Slide 1"))
+                    parsed.setdefault("speaker_notes", parsed.get("speaker_notes", ""))
+                    logger.info("slide_codes_parsed_single_object_fallback")
+                    return [parsed]
+            except json.JSONDecodeError:
+                pass
+        # Final fallback: model returned raw pptxgenjs JS in a code fence —
+        # synthesize a single slide entry from it.
+        js_fence = re.search(r"```(?:js|javascript)?\s*(slide\.[\s\S]*?)\s*```", raw, re.DOTALL)
+        if js_fence:
+            logger.info("slide_codes_parsed_js_fence_fallback")
+            return [{
+                "slide_number": 1,
+                "title": "Slide 1",
+                "speaker_notes": "",
+                "code": js_fence.group(1).strip(),
+            }]
         return []
 
     json_str = cleaned[start : end + 1]

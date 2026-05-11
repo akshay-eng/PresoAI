@@ -4,6 +4,7 @@ import { createProjectSchema } from "@slideforge/shared";
 import { getRequiredSession } from "@/lib/auth";
 import { getPresignedDownloadUrl } from "@/lib/s3";
 import { logger } from "@/lib/logger";
+import { summarizeForName } from "@/lib/llm-naming";
 
 export async function GET(request: NextRequest) {
   try {
@@ -79,9 +80,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Generate a short, descriptive project name from the user's prompt
+    // before persisting — so the dashboard / project page never displays the
+    // truncated 60-char raw prompt. We tolerate failures: if naming returns
+    // null (timeout / no API key / etc) we fall back to whatever name the
+    // client sent (which is the truncated prompt).
+    let resolvedName = parsed.data.name;
+    if (parsed.data.prompt && parsed.data.prompt.length > 0) {
+      try {
+        const nice = await summarizeForName(parsed.data.prompt, "project");
+        if (nice && nice.length >= 2) resolvedName = nice;
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message },
+          "Project name summarization failed, keeping raw name"
+        );
+      }
+    }
+
     const project = await prisma.project.create({
       data: {
         ...parsed.data,
+        name: resolvedName,
         userId: session.user.id,
       },
       include: {
@@ -89,7 +109,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    logger.info({ projectId: project.id }, "Project created");
+    logger.info({ projectId: project.id, name: resolvedName }, "Project created");
     return NextResponse.json(project, { status: 201 });
   } catch (err) {
     if ((err as Error).message === "Unauthorized") {

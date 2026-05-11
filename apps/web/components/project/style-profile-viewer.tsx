@@ -14,6 +14,10 @@ interface VisualStyle {
   design_language?: string; brand_personality?: string; color_usage?: string;
   content_density?: string; visual_hierarchy?: string; spacing_pattern?: string;
   typography_treatment?: string; graphic_elements?: string; chart_style?: string;
+  // Curated/seeded global profiles use these keys instead
+  spacing?: string; typography_hierarchy?: string; decoratives?: string;
+  color_discipline?: string; photography?: string; icons?: string;
+  info_density?: string; composition?: string;
 }
 
 interface LayoutPattern {
@@ -23,7 +27,11 @@ interface LayoutPattern {
 
 interface ProfileData {
   id: string; name: string; status: string; styleGuide?: string;
-  themeConfig?: Record<string, string>; visualStyle?: VisualStyle;
+  isGlobal?: boolean;
+  // themeConfig is stored two ways: legacy (flat OOXML keys: accent1, dk1, ...)
+  // or curated/seeded (nested under .colors with semantic role names).
+  themeConfig?: Record<string, string | Record<string, string>>;
+  visualStyle?: VisualStyle;
   layoutPatterns?: LayoutPattern[];
   sourceFiles: Array<{ id: string; fileName: string; slideCount: number; status: string }>;
 }
@@ -69,7 +77,13 @@ export function StyleProfileViewer({ profileId }: StyleProfileViewerProps) {
   if (isLoading) return <Skeleton className="h-40 w-full rounded-xl" />;
   if (!data || data.status !== "ready") return null;
 
-  const colors = data.themeConfig || {};
+  // Seeded profiles nest colors under themeConfig.colors with semantic role names.
+  // Legacy extracted profiles store flat OOXML keys directly on themeConfig.
+  const themeConfig = data.themeConfig || {};
+  const nestedColors = (themeConfig.colors as Record<string, string> | undefined) || null;
+  const colors: Record<string, string> = nestedColors
+    ? nestedColors
+    : (themeConfig as Record<string, string>);
   const vs = data.visualStyle || {};
   const layouts = data.layoutPatterns || [];
 
@@ -80,28 +94,42 @@ export function StyleProfileViewer({ profileId }: StyleProfileViewerProps) {
           <Eye className="h-3.5 w-3.5 text-primary" />
           {data.name}
         </p>
-        <Badge variant="outline" className="text-[10px]">{data.sourceFiles?.length || 0} files</Badge>
+        {data.isGlobal ? (
+          <Badge variant="secondary" className="text-[10px]">Default profile</Badge>
+        ) : (
+          <Badge variant="outline" className="text-[10px]">{data.sourceFiles?.length || 0} files</Badge>
+        )}
       </div>
       {vs.design_language && <p className="text-[11px] text-muted-foreground">{vs.design_language}</p>}
 
       <div className="space-y-3 text-xs">
         <Section icon={Palette} title="Colors">
           <div className="grid grid-cols-3 gap-2">
+            {/* Seeded format (semantic roles) */}
+            {colors.primary && <ColorSwatch color={colors.primary} label="Primary" />}
+            {colors.secondary && <ColorSwatch color={colors.secondary} label="Secondary" />}
             {colors.accent1 && <ColorSwatch color={colors.accent1} label="Accent 1" />}
             {colors.accent2 && <ColorSwatch color={colors.accent2} label="Accent 2" />}
             {colors.accent3 && <ColorSwatch color={colors.accent3} label="Accent 3" />}
             {colors.accent4 && <ColorSwatch color={colors.accent4} label="Accent 4" />}
+            {colors.background && <ColorSwatch color={colors.background} label="Background" />}
+            {colors.surface && <ColorSwatch color={colors.surface} label="Surface" />}
+            {colors.text_primary && <ColorSwatch color={colors.text_primary} label="Text" />}
+            {/* Legacy OOXML format */}
             {colors.dk1 && <ColorSwatch color={colors.dk1} label="Dark 1" />}
             {colors.lt1 && <ColorSwatch color={colors.lt1} label="Light 1" />}
           </div>
-          {vs.color_usage && <p className="text-muted-foreground mt-1.5">{vs.color_usage}</p>}
+          {(vs.color_usage || vs.color_discipline) && (
+            <p className="text-muted-foreground mt-1.5">{vs.color_usage || vs.color_discipline}</p>
+          )}
         </Section>
 
-        {vs.typography_treatment && (<><Separator /><Section icon={Type} title="Typography"><p className="text-muted-foreground">{vs.typography_treatment}</p></Section></>)}
-        {layouts.length > 0 && (<><Separator /><Section icon={Layout} title="Layouts"><div className="space-y-1.5">{layouts.map((lp, i) => (<div key={i} className="rounded border border-border p-2 bg-muted/20"><p className="font-medium text-foreground/80">{lp.description}</p>{lp.typical_elements?.length > 0 && <div className="flex flex-wrap gap-1 mt-1">{lp.typical_elements.map((el, j) => <Badge key={j} variant="outline" className="text-[9px]">{el}</Badge>)}</div>}</div>))}</div></Section></>)}
-        {vs.graphic_elements && (<><Separator /><Section icon={Shapes} title="Visual Elements"><p className="text-muted-foreground">{vs.graphic_elements}</p>{vs.chart_style && <p className="text-muted-foreground mt-1">{vs.chart_style}</p>}</Section></>)}
-        {(vs.content_density || vs.spacing_pattern) && (<><Separator /><Section icon={BookOpen} title="Content"><>{vs.content_density && <p className="text-muted-foreground">{vs.content_density}</p>}{vs.spacing_pattern && <p className="text-muted-foreground mt-1">{vs.spacing_pattern}</p>}{vs.visual_hierarchy && <p className="text-muted-foreground mt-1">{vs.visual_hierarchy}</p>}</></Section></>)}
+        {(vs.typography_treatment || vs.typography_hierarchy) && (<><Separator /><Section icon={Type} title="Typography"><p className="text-muted-foreground">{vs.typography_treatment || vs.typography_hierarchy}</p></Section></>)}
+        {layouts.length > 0 && (<><Separator /><Section icon={Layout} title="Layouts"><div className="space-y-1.5">{layouts.map((lp, i) => (<div key={i} className="rounded border border-border p-2 bg-muted/20"><p className="font-medium text-foreground/80">{lp.description}</p>{lp.typical_elements && lp.typical_elements.length > 0 && <div className="flex flex-wrap gap-1 mt-1">{lp.typical_elements.map((el, j) => <Badge key={j} variant="outline" className="text-[9px]">{el}</Badge>)}</div>}</div>))}</div></Section></>)}
+        {(vs.graphic_elements || vs.decoratives) && (<><Separator /><Section icon={Shapes} title="Visual Elements"><p className="text-muted-foreground">{vs.graphic_elements || vs.decoratives}</p>{vs.chart_style && <p className="text-muted-foreground mt-1">{vs.chart_style}</p>}{vs.photography && <p className="text-muted-foreground mt-1">{vs.photography}</p>}{vs.icons && <p className="text-muted-foreground mt-1">{vs.icons}</p>}</Section></>)}
+        {(vs.content_density || vs.spacing_pattern || vs.spacing || vs.info_density || vs.composition) && (<><Separator /><Section icon={BookOpen} title="Content"><>{(vs.content_density || vs.info_density) && <p className="text-muted-foreground">{vs.content_density || vs.info_density}</p>}{(vs.spacing_pattern || vs.spacing) && <p className="text-muted-foreground mt-1">{vs.spacing_pattern || vs.spacing}</p>}{vs.visual_hierarchy && <p className="text-muted-foreground mt-1">{vs.visual_hierarchy}</p>}{vs.composition && <p className="text-muted-foreground mt-1">{vs.composition}</p>}</></Section></>)}
         {vs.brand_personality && (<><Separator /><Section icon={Sparkles} title="Personality"><p className="text-muted-foreground">{vs.brand_personality}</p></Section></>)}
+        {data.styleGuide && (<><Separator /><Section icon={BookOpen} title="Style Guide"><p className="text-muted-foreground whitespace-pre-line text-[11px] leading-relaxed">{data.styleGuide}</p></Section></>)}
       </div>
     </div>
   );

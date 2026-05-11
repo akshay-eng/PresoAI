@@ -4,14 +4,17 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Shield, Loader2, Eye, EyeOff, Trash2, Zap, CheckCircle, Key, Gift } from "lucide-react";
+import { ArrowLeft, Shield, Loader2, Eye, EyeOff, Trash2, Zap, CheckCircle, Key, Gift, Code2, User as UserIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { DeveloperTab } from "@/components/settings/developer-tab";
 import { toast } from "sonner";
+
+type SettingsTab = "general" | "developer";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
@@ -26,6 +29,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const { data: session } = useSession({ required: true });
 
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [showPasswords, setShowPasswords] = useState(false);
@@ -131,7 +135,40 @@ export default function SettingsPage() {
           </div>
         </header>
 
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease }} className="max-w-2xl mx-auto px-6 py-8 space-y-8">
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease }} className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+
+          {/* Tab strip */}
+          <div className="flex items-center gap-1 border-b border-border/60">
+            {([
+              { id: "general" as const, label: "General", icon: UserIcon },
+              { id: "developer" as const, label: "Developer", icon: Code2 },
+            ]).map((t) => {
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  className={`relative flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+                    active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <t.icon className="h-3.5 w-3.5" />
+                  {t.label}
+                  {active && (
+                    <motion.span
+                      layoutId="settings-tab-underline"
+                      className="absolute -bottom-px left-0 right-0 h-0.5 bg-primary"
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {activeTab === "developer" ? (
+            <DeveloperTab />
+          ) : (
+            <div className="space-y-8">
 
           {/* Usage card */}
           <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -337,6 +374,9 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+
+            </div>
+          )}
 
         </motion.div>
       </div>

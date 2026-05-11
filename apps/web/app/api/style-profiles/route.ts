@@ -13,15 +13,22 @@ export async function GET() {
   try {
     const session = await getRequiredSession();
 
+    // Returns the user's own profiles AND the app's global default profiles
+    // (IBM, ICICI, Wipro). Globals always come first so they're visible up-top.
     const profiles = await prisma.styleProfile.findMany({
-      where: { userId: session.user.id },
+      where: {
+        OR: [{ userId: session.user.id }, { isGlobal: true }],
+      },
       include: {
         sourceFiles: {
           select: { id: true, fileName: true, status: true, slideCount: true },
         },
         _count: { select: { projects: true } },
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [
+        { isGlobal: "desc" }, // global profiles first
+        { updatedAt: "desc" },
+      ],
     });
 
     return NextResponse.json(profiles);

@@ -4,16 +4,17 @@ export const createProjectSchema = z.object({
   name: z.string().min(1).max(255),
   prompt: z.string().max(10000).default(""),
   numSlides: z.number().int().min(1).max(15).default(10),
-  audienceType: z.enum(["executive", "technical", "general"]).default("general"),
+  audienceType: z.enum(["executive", "technical", "general", "marketing"]).default("general"),
   templateId: z.string().optional(),
   llmConfigId: z.string().optional(),
+  styleProfileId: z.string().optional(),
 });
 
 export const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   prompt: z.string().min(1).max(10000).optional(),
   numSlides: z.number().int().min(1).max(15).optional(),
-  audienceType: z.enum(["executive", "technical", "general"]).optional(),
+  audienceType: z.enum(["executive", "technical", "general", "marketing"]).optional(),
   templateId: z.string().nullable().optional(),
   llmConfigId: z.string().nullable().optional(),
 });
@@ -21,9 +22,9 @@ export const updateProjectSchema = z.object({
 export const generatePresentationSchema = z.object({
   prompt: z.string().min(1).max(10000),
   numSlides: z.number().int().min(1).max(15),
-  audienceType: z.enum(["executive", "technical", "general"]),
+  audienceType: z.enum(["executive", "technical", "general", "marketing"]),
   modelId: z.string().min(1),
-  engine: z.enum(["claude-code", "claude-gemini", "node-worker"]).default("claude-code"),
+  engine: z.enum(["claude-code", "claude-gemini", "node-worker", "preso-pro"]).default("claude-code"),
   creativeMode: z.boolean().default(false),
   useDiagramImages: z.boolean().default(false),
   chatImageKeys: z.array(z.string()).optional(),

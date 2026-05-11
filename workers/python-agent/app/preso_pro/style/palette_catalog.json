@@ -1,0 +1,194 @@
+[
+  {
+    "id": "vibrant-tech-01",
+    "mood": "vibrant-tech",
+    "background_mode": "dark",
+    "palette": {
+      "background":   "#0A0A1A",
+      "surface":      "#1A1A2E",
+      "primary":      "#7B2CBF",
+      "accent_1":     "#FF006E",
+      "accent_2":     "#00B4D8",
+      "text_primary": "#FFFFFF",
+      "text_muted":   "#A0A0B5",
+      "text_inverse": "#0A0A1A"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "vibrant-tech-02",
+    "mood": "vibrant-tech",
+    "background_mode": "dark",
+    "palette": {
+      "background":   "#0F0F23",
+      "surface":      "#1E1E3F",
+      "primary":      "#00D9FF",
+      "accent_1":     "#FF3CAC",
+      "accent_2":     "#FFD60A",
+      "text_primary": "#FFFFFF",
+      "text_muted":   "#9CA3AF",
+      "text_inverse": "#0F0F23"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "corporate-trust-01",
+    "mood": "corporate-trust",
+    "background_mode": "light",
+    "palette": {
+      "background":   "#FFFFFF",
+      "surface":      "#F4F6FA",
+      "primary":      "#0D3B66",
+      "accent_1":     "#1976D2",
+      "accent_2":     "#FFA62B",
+      "text_primary": "#0F172A",
+      "text_muted":   "#64748B",
+      "text_inverse": "#FFFFFF"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "corporate-trust-02",
+    "mood": "corporate-trust",
+    "background_mode": "dark",
+    "palette": {
+      "background":   "#0B1220",
+      "surface":      "#152033",
+      "primary":      "#3B82F6",
+      "accent_1":     "#22D3EE",
+      "accent_2":     "#F59E0B",
+      "text_primary": "#F8FAFC",
+      "text_muted":   "#94A3B8",
+      "text_inverse": "#0B1220"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "fintech-precise-01",
+    "mood": "fintech-precise",
+    "background_mode": "light",
+    "palette": {
+      "background":   "#FAFAFA",
+      "surface":      "#F0F0F2",
+      "primary":      "#1B1F3B",
+      "accent_1":     "#00C896",
+      "accent_2":     "#FFB400",
+      "text_primary": "#0F172A",
+      "text_muted":   "#6B7280",
+      "text_inverse": "#FFFFFF"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "vibrant-creative-01",
+    "mood": "vibrant-creative",
+    "background_mode": "dark",
+    "palette": {
+      "background":   "#1A0033",
+      "surface":      "#2D1B4E",
+      "primary":      "#F72585",
+      "accent_1":     "#7209B7",
+      "accent_2":     "#4CC9F0",
+      "text_primary": "#FFFFFF",
+      "text_muted":   "#C0C0D8",
+      "text_inverse": "#1A0033"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "vibrant-creative-02",
+    "mood": "vibrant-creative",
+    "background_mode": "light",
+    "palette": {
+      "background":   "#FFF5F0",
+      "surface":      "#FFE3D5",
+      "primary":      "#FF4E50",
+      "accent_1":     "#F9D423",
+      "accent_2":     "#1B998B",
+      "text_primary": "#1F2937",
+      "text_muted":   "#6B7280",
+      "text_inverse": "#FFFFFF"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "luxury-muted-01",
+    "mood": "luxury-muted",
+    "background_mode": "dark",
+    "palette": {
+      "background":   "#1C1C1C",
+      "surface":      "#2A2A2A",
+      "primary":      "#C9A96E",
+      "accent_1":     "#8B6F47",
+      "accent_2":     "#D4D4D4",
+      "text_primary": "#F5F5F5",
+      "text_muted":   "#A8A8A8",
+      "text_inverse": "#1C1C1C"
+    },
+    "typography": { "heading_font": "Playfair Display", "body_font": "Inter" }
+  },
+  {
+    "id": "monochrome-minimal-01",
+    "mood": "monochrome-minimal",
+    "background_mode": "light",
+    "palette": {
+      "background":   "#FFFFFF",
+      "surface":      "#F5F5F5",
+      "primary":      "#000000",
+      "accent_1":     "#404040",
+      "accent_2":     "#808080",
+      "text_primary": "#000000",
+      "text_muted":   "#525252",
+      "text_inverse": "#FFFFFF"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "monochrome-minimal-02",
+    "mood": "monochrome-minimal",
+    "background_mode": "dark",
+    "palette": {
+      "background":   "#0A0A0A",
+      "surface":      "#1A1A1A",
+      "primary":      "#FFFFFF",
+      "accent_1":     "#A3A3A3",
+      "accent_2":     "#525252",
+      "text_primary": "#FFFFFF",
+      "text_muted":   "#A3A3A3",
+      "text_inverse": "#0A0A0A"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "healthcare-calm-01",
+    "mood": "healthcare-calm",
+    "background_mode": "light",
+    "palette": {
+      "background":   "#F0F9FF",
+      "surface":      "#E0F2FE",
+      "primary":      "#0891B2",
+      "accent_1":     "#10B981",
+      "accent_2":     "#F59E0B",
+      "text_primary": "#0C4A6E",
+      "text_muted":   "#475569",
+      "text_inverse": "#FFFFFF"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  },
+  {
+    "id": "startup-energetic-01",
+    "mood": "startup-energetic",
+    "background_mode": "dark",
+    "palette": {
+      "background":   "#0E0E2C",
+      "surface":      "#1C1C44",
+      "primary":      "#FF6B35",
+      "accent_1":     "#F7B538",
+      "accent_2":     "#06D6A0",
+      "text_primary": "#FFFFFF",
+      "text_muted":   "#A0A0C0",
+      "text_inverse": "#0E0E2C"
+    },
+    "typography": { "heading_font": "Inter", "body_font": "Inter" }
+  }
+]

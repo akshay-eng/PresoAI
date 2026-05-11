@@ -35,6 +35,90 @@ interface SlideCode {
   code: string;
 }
 
+const PYTHON_AGENT_URL =
+  process.env.PYTHON_AGENT_URL ||
+  process.env.PPTX_AGENT_URL?.replace(":8100", ":8000") ||
+  "http://localhost:8000";
+
+/**
+ * Pick a clean PPTX title from the deck's content. Prefers the cover
+ * slide's title (which is usually a punchy headline like "From Reactive
+ * Chaos to Autonomous Resilience"), and runs it through python-agent's
+ * /summarize-name to strip stray section numbers, eyebrows, or markdown.
+ * Falls back to the cover title verbatim, or the project name.
+ */
+async function derivePresentationTitle(args: {
+  coverTitle: string;
+  slideTitles: string[];
+  projectName: string;
+}): Promise<string> {
+  const { coverTitle, slideTitles, projectName } = args;
+  const seed = coverTitle?.trim() || slideTitles[0]?.trim() || projectName;
+  if (!seed) return "Presentation";
+
+  // If the cover title is already short and clean, use it as-is — no need
+  // to round-trip through the LLM.
+  const looksClean = seed.length <= 60 && !/[\\/:*?"<>|\[\]()`~]/.test(seed);
+  if (looksClean) return seed;
+
+  // Otherwise summarize via python-agent (server-side Gemini key).
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(`${PYTHON_AGENT_URL}/summarize-name`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: seed, kind: "presentation" }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = (await res.json()) as { name?: string };
+      if (data?.name) return data.name;
+    }
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message },
+      "Presentation title summarization failed, using cover title"
+    );
+  }
+
+  // Last resort — sanitize the cover title for filename safety.
+  return seed.replace(/[\\/:*?"<>|\[\]()`~]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Presentation";
+}
+
+/**
+ * Strip patterns that the LLM emits but that crash pptxgenjs at write time.
+ *
+ * `transparency: <num>` is only valid INSIDE a shape's `fill: {...}` object.
+ * If the LLM puts it at the root of an addText / addShape options object,
+ * pptxgenjs internally builds a structured color value that later blows up
+ * `createColorElement`. Cheaper to scrub at source than to guard the whole
+ * pipeline.
+ */
+function sanitizeSlideCode(code: string): string {
+  let out = code;
+
+  // (1) Strip stray `transparency: <num>` from text/shape option roots —
+  //     pptxgenjs only accepts it inside fill: {...} on shapes.
+  out = out
+    .replace(/,\s*transparency\s*:\s*-?\d+(?:\.\d+)?/g, "")
+    .replace(/transparency\s*:\s*-?\d+(?:\.\d+)?\s*,/g, "");
+
+  // (2) pptxgenjs has a footgun in addBackgroundDefinition: writing
+  //     `slide.background = { fill: { type:'solid', color:'HEX' } }` causes
+  //     it to assign the whole fill object to `.color`, and the XML
+  //     serializer crashes on `(obj || "").replace`. Only `{ color: 'HEX' }`
+  //     and `{ path: '...' }` are supported. Rewrite the broken form back
+  //     to the working one before executing.
+  out = out.replace(
+    /slide\.background\s*=\s*\{\s*fill\s*:\s*\{[^{}]*?color\s*:\s*(['"])([0-9A-Fa-f]{6})\1[^{}]*?\}\s*\}\s*;?/g,
+    "slide.background = { color: '$2' };"
+  );
+
+  return out;
+}
+
 /**
  * Execute LLM-generated pptxgenjs code for a single slide.
  * The code has access to `slide` and `pres` objects.
@@ -46,11 +130,32 @@ function executeSlideCode(
 ): void {
   const slide = pres.addSlide();
 
+  /**
+   * Embed an SVG string as an image on the slide. Useful when the model needs
+   * gradients, rotated parallelograms, glass/glow effects, or any geometry
+   * pptxgenjs's native shape API can't express. The model writes SVG as a
+   * plain string (gradients, transforms, filters all welcome) and we handle
+   * the base64 + data-URI encoding here so the LLM never has to.
+   */
+  function embedSvg(
+    svg: string,
+    opts: { x: number; y: number; w: number; h: number; rotate?: number; transparency?: number }
+  ) {
+    const b64 = Buffer.from(svg, "utf8").toString("base64");
+    slide.addImage({
+      data: `image/svg+xml;base64,${b64}`,
+      ...opts,
+    });
+  }
+
   try {
     // Create a sandbox with the objects the code needs
     const sandbox = {
       slide,
       pres,
+      embedSvg,
+      Buffer,
+      Math,
       console: {
         log: (...args: unknown[]) => logger.info({ slide: slideIndex }, ...args as [string]),
         error: (...args: unknown[]) => logger.error({ slide: slideIndex }, ...args as [string]),
@@ -59,8 +164,10 @@ function executeSlideCode(
 
     const context = vm.createContext(sandbox);
 
+    const safeCode = sanitizeSlideCode(slideData.code);
+
     // Execute the LLM-generated code in a sandboxed context
-    vm.runInContext(slideData.code, context, {
+    vm.runInContext(safeCode, context, {
       timeout: 10000, // 10 second timeout per slide
       filename: `slide-${slideIndex + 1}.js`,
     });
@@ -185,10 +292,38 @@ export async function processNodeWorkerJob(
   try {
     const existingVersions = await prisma.presentation.count({ where: { projectId } });
 
+    // Persist the per-slide pptxgenjs source so future edit prompts can
+    // patch a single slide without re-running the research → outline →
+    // slide_writer pipeline. We strip down to the fields the edit agent
+    // needs — code, title, slide_number, speaker_notes — and drop any
+    // visual_parts or transient state from the original LLM payload.
+    const slidesData = (slides as unknown as Array<Record<string, unknown>>).map((s, idx) => ({
+      slide_number: typeof s.slide_number === "number" ? s.slide_number : idx + 1,
+      title: typeof s.title === "string" ? s.title : `Slide ${idx + 1}`,
+      code: typeof s.code === "string" ? s.code : "",
+      speaker_notes: typeof s.speaker_notes === "string" ? s.speaker_notes : "",
+    }));
+
+    const themeSnapshot = {
+      themeConfig: rawTheme || {},
+      mergedTheme: theme,
+    };
+
+    // Derive the PPTX title from the cover slide's title — that's the
+    // most semantically meaningful summary of the deck. Falls back to
+    // the project name if the cover title looks empty / generic, and
+    // finally to the project name. Title-case + filename-safe.
+    const presentationTitle = await derivePresentationTitle({
+      coverTitle: slidesData[0]?.title || "",
+      slideTitles: slidesData.map((s) => s.title).filter(Boolean),
+      projectName,
+    });
+
     const presentation = await prisma.presentation.create({
       data: {
-        projectId, title: projectName, s3Key, thumbnails,
+        projectId, title: presentationTitle, s3Key, thumbnails,
         slideCount: slides.length, version: existingVersions + 1,
+        slidesData, themeSnapshot,
       },
     });
 
