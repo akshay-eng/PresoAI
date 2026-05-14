@@ -1,5 +1,6 @@
 import { PrismaClient, UserRole } from "@prisma/client";
 import { hash } from "bcryptjs";
+import { seedGlobalStyleProfiles } from "./seed-style-profiles";
 
 const prisma = new PrismaClient();
 
@@ -116,6 +117,9 @@ async function main() {
 
   console.log("Seeded users:", { adminUser: adminUser.id, demoUser: demoUser.id });
   console.log("Seeded default LLM configs");
+
+  // Global brand style profiles (IBM, ICICI, Wipro) — idempotent upsert.
+  await seedGlobalStyleProfiles(prisma);
 }
 
 main()

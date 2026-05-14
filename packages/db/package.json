@@ -9,6 +9,7 @@
     "migrate": "prisma migrate dev",
     "migrate:prod": "prisma migrate deploy",
     "seed": "tsx prisma/seed.ts",
+    "seed:styles": "tsx prisma/seed-style-profiles.ts",
     "studio": "prisma studio",
     "build": "tsc"
   },

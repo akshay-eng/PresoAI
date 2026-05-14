@@ -71,7 +71,7 @@ export const api = {
     numSlides: number;
     audienceType: string;
     modelId: string;
-    engine?: "claude-code" | "claude-gemini" | "node-worker" | "preso-pro";
+    engine?: "claude-code" | "preso-plus" | "node-worker" | "preso-pro";
     creativeMode?: boolean;
     useDiagramImages?: boolean;
     chatImageKeys?: string[];

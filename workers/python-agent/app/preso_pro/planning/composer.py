@@ -796,8 +796,14 @@ async def compose_slide(
     intent: str,
     title: str,
     content_cue: str,
+    project_context: str = "",
 ) -> SlideSpec:
-    """Generate one SlideSpec via LLM, parse, return."""
+    """Generate one SlideSpec via LLM, parse, return.
+
+    `project_context` is the per-project memory brief — prior outlines,
+    decisions, entities, narrative. Prepended to the user prompt so each
+    composed slide stays consistent with the rest of the project's history.
+    """
 
     sys_msg = SYSTEM_PROMPT.format(
         shape_kit_json=_shape_kit_for_mood(ctx),
@@ -818,8 +824,16 @@ async def compose_slide(
             f"you have failed.\n"
         )
 
+    memory_block = ""
+    if project_context:
+        memory_block = (
+            f"\n## Project Memory (read first — keep this slide consistent with it)\n"
+            f"{project_context[:1200]}\n"
+        )
+
     user_msg = (
         f"{_examples_message()}\n\n"
+        f"{memory_block}"
         f"Now compose slide {slide_index}.\n"
         f"Intent tag: {intent}\n"
         f"Title to use: {title!r}\n"

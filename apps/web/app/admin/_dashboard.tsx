@@ -12,7 +12,7 @@ const AdminWorldMap = dynamic(() => import("./_world-map"), {
 });
 import {
   Activity, Users, FileText, Download, Cpu, Zap, LogOut,
-  TrendingUp, Coins, Wallet, Loader2, Search, Globe, Monitor,
+  TrendingUp, Coins, Wallet, Loader2, Search, Globe, Monitor, LifeBuoy,
   Eye, ExternalLink, Code2, AlertTriangle, Gauge, KeyRound,
 } from "lucide-react";
 import {
@@ -197,6 +197,14 @@ export function AdminDashboard() {
               <option value={90}>Last 90 days</option>
               <option value={180}>Last 180 days</option>
             </select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/admin/support")}
+              className="h-8 text-xs gap-1.5"
+            >
+              <LifeBuoy className="h-3 w-3" /> Support tickets
+            </Button>
             <Button variant="ghost" size="sm" onClick={logout} className="h-8 text-xs gap-1.5">
               <LogOut className="h-3 w-3" /> Logout
             </Button>

@@ -6,7 +6,7 @@ import { Download, ExternalLink, RefreshCw, Check, X, Edit2 } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { useGenerationStore } from "@/lib/stores/generation-store";
+import { useGenerationStore, useProjectGeneration } from "@/lib/stores/generation-store";
 import { api } from "@/lib/api-client";
 
 const PHASE_LABELS: Record<string, string> = {
@@ -48,7 +48,7 @@ export function GenerationPanel({ projectId }: GenerationPanelProps) {
     isGenerating,
     error,
     updateProgress,
-  } = useGenerationStore();
+  } = useProjectGeneration(projectId);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const [editingOutline, setEditingOutline] = useState(false);
@@ -147,7 +147,7 @@ export function GenerationPanel({ projectId }: GenerationPanelProps) {
             variant="outline"
             className="mt-2 w-full text-xs"
             onClick={() => {
-              useGenerationStore.getState().reset();
+              useGenerationStore.getState().reset(projectId);
               toast.info("Click Generate to retry.");
             }}
           >

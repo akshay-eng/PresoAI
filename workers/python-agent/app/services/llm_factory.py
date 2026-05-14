@@ -72,6 +72,13 @@ def get_model(config: LLMConfig) -> BaseChatModel:
                 google_api_key=api_key,
                 temperature=config.temperature,
                 max_output_tokens=config.max_tokens,
+                # Fail fast on a stalled call instead of looping through
+                # langchain's default 6-retry exponential backoff that can
+                # block the worker for 5-10 minutes on a single 504. The
+                # job's error handler picks up the exception, classifies it
+                # ("timeout"), and surfaces an actionable card to the user.
+                timeout=180,
+                max_retries=2,
             )
         case "mistral":
             return ChatMistralAI(

@@ -11,9 +11,19 @@ const execFileAsync = promisify(execFile);
 const logger = pino({ name: "thumbnail-generator" });
 
 const LIBREOFFICE_PATH = process.env.LIBREOFFICE_PATH || "/usr/bin/libreoffice";
+const PDFTOPPM_PATH = process.env.PDFTOPPM_PATH || "pdftoppm";
 const THUMBNAIL_WIDTH = 800;
 const THUMBNAIL_QUALITY = 80;
 
+/**
+ * Render one PNG per slide of a PPTX.
+ *
+ * The previous implementation called `soffice --convert-to png`, which
+ * silently emits only the FIRST slide — that's a LibreOffice limitation,
+ * not a bug we can fix in the args. The correct pipeline is:
+ *   PPTX --(soffice --convert-to pdf)--> PDF --(pdftoppm -png)--> slide-1.png, slide-2.png, …
+ * Then each PNG is downscaled to THUMBNAIL_WIDTH via sharp and uploaded to S3.
+ */
 export async function generateThumbnails(
   pptxBuffer: Buffer,
   projectId: string,
@@ -27,42 +37,58 @@ export async function generateThumbnails(
     await fs.mkdir(outDir, { recursive: true });
     await fs.writeFile(pptxPath, pptxBuffer);
 
-    logger.info({ tmpDir }, "Starting LibreOffice conversion");
-
+    // ── Step 1: PPTX → PDF via LibreOffice ─────────────────────────────
+    logger.info({ tmpDir }, "Starting LibreOffice PDF conversion");
     await execFileAsync(LIBREOFFICE_PATH, [
       "--headless",
       "--convert-to",
-      "png",
+      "pdf",
       "--outdir",
       outDir,
       pptxPath,
     ], {
       timeout: 120000,
-      env: {
-        ...process.env,
-        HOME: tmpDir,
-      },
+      env: { ...process.env, HOME: tmpDir },
     });
 
+    // soffice names the output after the input basename — "slides.pptx" → "slides.pdf"
+    const pdfPath = path.join(outDir, "slides.pdf");
+    try {
+      await fs.access(pdfPath);
+    } catch {
+      const all = await fs.readdir(outDir);
+      logger.warn({ files: all }, "PDF not produced after LibreOffice conversion");
+      return [];
+    }
+
+    // ── Step 2: PDF → one PNG per page via pdftoppm ────────────────────
+    // -r 96 = 96 DPI (renders to ~960px for a 10" slide; we downscale below)
+    // -png  = output format
+    // last arg is the output filename PREFIX — pdftoppm appends "-NN" per page
+    await execFileAsync(PDFTOPPM_PATH, [
+      "-r",
+      "96",
+      "-png",
+      pdfPath,
+      path.join(outDir, "slide"),
+    ], {
+      timeout: 120000,
+      env: { ...process.env },
+    });
+
+    // pdftoppm zero-pads the page suffix based on total page count, so a
+    // simple lexicographic sort produces the correct slide order.
     const files = await fs.readdir(outDir);
     const pngFiles = files
-      .filter((f) => f.endsWith(".png"))
-      .sort((a, b) => {
-        const numA = parseInt(a.match(/\d+/)?.[0] || "0", 10);
-        const numB = parseInt(b.match(/\d+/)?.[0] || "0", 10);
-        return numA - numB;
-      });
+      .filter((f) => f.startsWith("slide-") && f.endsWith(".png"))
+      .sort();
 
     if (pngFiles.length === 0) {
-      // LibreOffice might produce a single image for single-page or produce differently named files
-      // Try to find any png files in outDir
-      const allFiles = await fs.readdir(outDir);
-      logger.warn({ files: allFiles }, "No PNG files found after conversion");
+      logger.warn({ files }, "No per-slide PNGs produced by pdftoppm");
       return [];
     }
 
     const thumbnailKeys: string[] = [];
-
     for (let i = 0; i < pngFiles.length; i++) {
       const filePath = path.join(outDir, pngFiles[i]!);
       const rawBuffer = await fs.readFile(filePath);

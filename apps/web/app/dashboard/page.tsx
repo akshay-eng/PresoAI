@@ -36,7 +36,7 @@ export default function DashboardPage() {
   const [audienceType, setAudienceType] = useState("general");
   const [numSlides, setNumSlides] = useState(10);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker" | "preso-pro">("node-worker");
+  const [engine, setEngine] = useState<"claude-code" | "preso-plus" | "node-worker" | "preso-pro">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
   const [useDiagramImages, setUseDiagramImages] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
@@ -135,35 +135,23 @@ export default function DashboardPage() {
       const p = project as { id: string };
       queryClient.invalidateQueries({ queryKey: ["projects"] });
 
-      // Attach template if uploaded
-      if (templateFile) {
-        try {
-          await api.addTemplate(p.id, templateFile.key);
-        } catch { /* continue even if attach fails */ }
-      }
-
-      // Attach reference files if uploaded
-      for (const ref of referenceFiles) {
-        try {
-          await api.addReference(p.id, {
-            s3Key: ref.key,
-            fileName: ref.fileName,
-            fileType: ref.fileType || "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            fileSize: ref.fileSize,
-          });
-        } catch { /* continue */ }
-      }
-
-      // If the user pasted images, seed the chat with a user message carrying the image keys
-      if (pastedImages.length > 0) {
+      // Seed the chat with the user's message BEFORE navigating so the
+      // project page renders the bubble instantly on mount (no round-trip
+      // needed for the optimistic message).
+      const promptText = quickPrompt.trim();
+      if (promptText) {
         useChatStore.getState().addMessage(p.id, {
           role: "user",
-          content: quickPrompt.trim(),
-          metadata: { imageKeys: pastedImages.map((img) => img.key) },
+          content: promptText,
+          metadata: {
+            audienceType,
+            numSlides,
+            ...(pastedImages.length > 0 ? { imageKeys: pastedImages.map((img) => img.key) } : {}),
+          },
         });
       }
 
-      // Pass settings via URL params so project page can auto-trigger generation
+      // Build the autoGenerate URL params.
       const params = new URLSearchParams({
         autoGenerate: "1",
         modelId: selectedModelId,
@@ -173,13 +161,49 @@ export default function DashboardPage() {
         ...(creativeMode ? { creativeMode: "1" } : {}),
         ...(useDiagramImages ? { useDiagramImages: "1" } : {}),
       });
-      // Clear form state before navigating so returning to dashboard is fresh
+
+      // Capture the attachments BEFORE clearing form state so the background
+      // fire-and-forget below sees the right values.
+      const _templateFile = templateFile;
+      const _refs = referenceFiles.slice();
+
+      // Clear form state so returning to dashboard is fresh.
       setQuickPrompt("");
       setPastedImages([]);
       setTemplateFile(null);
       setReferenceFiles([]);
 
+      // ── Navigate IMMEDIATELY ─────────────────────────────────────────
+      // The project page's autoGenerate effect fires as soon as it loads
+      // — no need to wait for attachments to be linked first. Attachments
+      // are background-attached below; the project page reads them via
+      // its own query and re-renders when they appear.
       router.push(`/projects/${p.id}?${params.toString()}`);
+
+      // ── Background attachment work ───────────────────────────────────
+      // Fire-and-forget so the user sees the project page instantly. The
+      // project page's autoGenerate fires after a 300ms delay, which is
+      // usually enough for these to finish — and even if not, the
+      // python-agent reads references from the DB at job-pickup time, so
+      // a slightly-late attachment still lands in the deck context.
+      void (async () => {
+        if (_templateFile) {
+          try {
+            await api.addTemplate(p.id, _templateFile.key);
+          } catch { /* logged server-side */ }
+        }
+        for (const ref of _refs) {
+          try {
+            await api.addReference(p.id, {
+              s3Key: ref.key,
+              fileName: ref.fileName,
+              fileType: ref.fileType || "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              fileSize: ref.fileSize,
+            });
+          } catch { /* logged server-side */ }
+        }
+        queryClient.invalidateQueries({ queryKey: ["project", p.id] });
+      })();
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -279,7 +303,7 @@ export default function DashboardPage() {
     setIntentChecking(true);
     setIntentReply(null);
     try {
-      const intent = await classifyIntent(trimmed, false);
+      const intent = await classifyIntent(trimmed, false, { audience: audienceType, numSlides });
       if (intent.action !== "generate") {
         setIntentReply(
           intent.reply ||
@@ -483,7 +507,7 @@ export default function DashboardPage() {
                               {([
                                 { key: "preso-pro" as const, label: "Preso Pro", disabled: false },
                                 { key: "node-worker" as const, label: "Preso Elite", disabled: false },
-                                { key: "claude-gemini" as const, label: "Preso Plus", disabled: true },
+                                { key: "preso-plus" as const, label: "Preso Plus", disabled: false },
                               ]).map((eng) => (
                                 <button
                                   key={eng.key}

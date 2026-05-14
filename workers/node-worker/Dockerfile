@@ -1,5 +1,9 @@
 FROM node:20-alpine AS base
-RUN apk add --no-cache libreoffice font-noto openssl
+# poppler-utils provides pdftoppm — the thumbnail generator now does
+# PPTX → soffice PDF → pdftoppm one-PNG-per-page (LibreOffice's direct
+# PNG converter only emits the first slide, which is why prod thumbnails
+# were 1-per-deck regardless of slide count).
+RUN apk add --no-cache libreoffice poppler-utils font-noto openssl
 RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /app
 

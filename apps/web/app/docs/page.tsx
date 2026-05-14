@@ -346,7 +346,7 @@ export default function DocsPage() {
             <li>You have at least one provider API key configured (OpenAI / Anthropic / Mistral / Gemini), <em>or</em></li>
             <li>You&apos;ve redeemed a coupon that grants unlimited use.</li>
           </ul>
-          <Code lang="bash" code={`curl https://your-preso-host/api/v1/style-profiles \\
+          <Code lang="bash" code={`curl https://presoai.stallion-ai.in/api/v1/style-profiles \\
   -H "Authorization: Bearer psf_Y58n7loc..."`} />
         </section>
 
@@ -376,7 +376,7 @@ export default function DocsPage() {
           </p>
           <Code
             lang="bash"
-            code={`curl -X POST https://your-preso-host/api/v1/decks \\
+            code={`curl -X POST https://presoai.stallion-ai.in/api/v1/decks \\
   -H "Authorization: Bearer psf_…" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: $(uuidgen)" \\
@@ -450,7 +450,7 @@ X-RateLimit-Remaining-Hour: 412`} />
             description="Async. Returns 202 Accepted with a jobId — poll or stream until the deck is ready."
             body
           />
-          <Code lang="bash" code={`curl -X POST https://your-preso-host/api/v1/decks \\
+          <Code lang="bash" code={`curl -X POST https://presoai.stallion-ai.in/api/v1/decks \\
   -H "Authorization: Bearer psf_…" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: 9b1b9f..." \\
@@ -466,15 +466,15 @@ X-RateLimit-Remaining-Hour: 412`} />
   "jobId": "cmoxg2jil0005145i0bm82tqq",
   "deckId": "cmoxfvztp000875pss1bsrr47",
   "status": "queued",
-  "statusUrl": "https://your-preso-host/api/v1/jobs/cmoxg2jil0005145i0bm82tqq",
-  "streamUrl": "https://your-preso-host/api/v1/jobs/cmoxg2jil0005145i0bm82tqq/stream"
+  "statusUrl": "https://presoai.stallion-ai.in/api/v1/jobs/cmoxg2jil0005145i0bm82tqq",
+  "streamUrl": "https://presoai.stallion-ai.in/api/v1/jobs/cmoxg2jil0005145i0bm82tqq/stream"
 }`} />
           <FieldTable
             rows={[
               { name: "prompt",            type: "string",    req: true,  desc: "What the deck is about. Audience hints, ask, and tone all go here." },
               { name: "numSlides",         type: "integer",   req: true,  desc: "1–15." },
               { name: "audienceType",      type: "enum",      req: false, desc: "executive | technical | general | marketing. Default: general." },
-              { name: "engine",            type: "enum",      req: false, desc: "preso-pro | node-worker | claude-code | claude-gemini. Default: node-worker (Preso Elite)." },
+              { name: "engine",            type: "enum",      req: false, desc: "preso-pro | node-worker | claude-code | preso-plus. Default: node-worker (Preso Elite)." },
               { name: "creativeMode",      type: "boolean",   req: false, desc: "Pushes the agent toward unconventional layouts." },
               { name: "useDiagramImages", type: "boolean",   req: false, desc: "Render complex diagrams as images via Kroki." },
               { name: "styleProfileId",    type: "string",    req: false, desc: "Lock the deck to a brand style. See GET /v1/style-profiles." },
@@ -493,7 +493,7 @@ X-RateLimit-Remaining-Hour: 412`} />
             summary="Poll a job"
             description="Returns the latest known status, phase, progress, and (when ready) the presentation ID + 1-hour presigned download URL."
           />
-          <Code lang="bash" code={`curl https://your-preso-host/api/v1/jobs/JOB_ID \\
+          <Code lang="bash" code={`curl https://presoai.stallion-ai.in/api/v1/jobs/JOB_ID \\
   -H "Authorization: Bearer psf_…"`} />
           <Code lang="json" code={`{
   "jobId": "cmoxg2jil0005145i0bm82tqq",
@@ -521,7 +521,7 @@ X-RateLimit-Remaining-Hour: 412`} />
             summary="Stream job progress (SSE)"
             description="Server-Sent Events. Each `data:` line is a JSON object with phase / progress / message. Stream ends with phase=complete or phase=failed."
           />
-          <Code lang="bash" code={`curl -N https://your-preso-host/api/v1/jobs/JOB_ID/stream \\
+          <Code lang="bash" code={`curl -N https://presoai.stallion-ai.in/api/v1/jobs/JOB_ID/stream \\
   -H "Authorization: Bearer psf_…"`} />
           <Code lang="text" code={`data: {"phase":"queued","progress":0,"message":"Connected to job …"}
 
@@ -533,7 +533,7 @@ data: {"phase":"complete","progress":1,"message":"Presentation ready!","data":{"
           <p className="text-sm text-muted-foreground italic">
             JS example using <code>EventSource</code>:
           </p>
-          <Code lang="js" code={`const url = new URL("https://your-preso-host/api/v1/jobs/" + jobId + "/stream");
+          <Code lang="js" code={`const url = new URL("https://presoai.stallion-ai.in/api/v1/jobs/" + jobId + "/stream");
 const ev = new EventSource(url, {
   headers: { Authorization: "Bearer psf_…" } // requires the EventSourcePolyfill on browsers
 });
@@ -552,7 +552,7 @@ ev.onmessage = (e) => {
             description="Patches only the slides affected by your instruction. Same async contract as create."
             body
           />
-          <Code lang="bash" code={`curl -X POST https://your-preso-host/api/v1/decks/DECK_ID/edit \\
+          <Code lang="bash" code={`curl -X POST https://presoai.stallion-ai.in/api/v1/decks/DECK_ID/edit \\
   -H "Authorization: Bearer psf_…" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -575,7 +575,7 @@ ev.onmessage = (e) => {
             summary="Get deck metadata"
             description="Project info plus a version list of all rendered presentations for this deck."
           />
-          <Code lang="bash" code={`curl https://your-preso-host/api/v1/decks/DECK_ID \\
+          <Code lang="bash" code={`curl https://presoai.stallion-ai.in/api/v1/decks/DECK_ID \\
   -H "Authorization: Bearer psf_…"`} />
         </section>
 
@@ -586,7 +586,7 @@ ev.onmessage = (e) => {
             summary="Get a presigned download URL"
             description="Returns a short-lived (1h) URL to the latest rendered .pptx, or a specific version with ?version=N."
           />
-          <Code lang="bash" code={`curl https://your-preso-host/api/v1/decks/DECK_ID/download?version=2 \\
+          <Code lang="bash" code={`curl https://presoai.stallion-ai.in/api/v1/decks/DECK_ID/download?version=2 \\
   -H "Authorization: Bearer psf_…"`} />
         </section>
 
@@ -599,12 +599,12 @@ ev.onmessage = (e) => {
             body
           />
           <p className="text-sm text-muted-foreground italic mt-2">Direct upload (multipart):</p>
-          <Code lang="bash" code={`curl -X POST https://your-preso-host/api/v1/files \\
+          <Code lang="bash" code={`curl -X POST https://presoai.stallion-ai.in/api/v1/files \\
   -H "Authorization: Bearer psf_…" \\
   -F "file=@./reference-deck.pptx" \\
   -F "purpose=reference"`} />
           <p className="text-sm text-muted-foreground italic mt-4">Presigned URL (large files):</p>
-          <Code lang="bash" code={`curl -X POST https://your-preso-host/api/v1/files \\
+          <Code lang="bash" code={`curl -X POST https://presoai.stallion-ai.in/api/v1/files \\
   -H "Authorization: Bearer psf_…" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -624,7 +624,7 @@ curl -X PUT "$UPLOAD_URL" --data-binary @./big-deck.pptx \\
             path="/v1/style-profiles"
             summary="List available brand styles"
           />
-          <Code lang="bash" code={`curl https://your-preso-host/api/v1/style-profiles \\
+          <Code lang="bash" code={`curl https://presoai.stallion-ai.in/api/v1/style-profiles \\
   -H "Authorization: Bearer psf_…"`} />
         </section>
 
@@ -635,7 +635,7 @@ curl -X PUT "$UPLOAD_URL" --data-binary @./big-deck.pptx \\
             summary="List available LLM models"
             description="Tells you which models are configured and which providers you have stored keys for — so you know whether you need to pass model.apiKey in /v1/decks calls."
           />
-          <Code lang="bash" code={`curl https://your-preso-host/api/v1/llm-configs \\
+          <Code lang="bash" code={`curl https://presoai.stallion-ai.in/api/v1/llm-configs \\
   -H "Authorization: Bearer psf_…"`} />
         </section>
 
@@ -652,9 +652,8 @@ curl -X PUT "$UPLOAD_URL" --data-binary @./big-deck.pptx \\
             same audit log.
           </p>
           <p>
-            <strong>Endpoint:</strong> <code>https://your-preso-host:8200/mcp</code>{" "}
-            (or whatever you set <code>MCP_PORT</code> / <code>MCP_HOST</code>
-            to in your deployment). Transport is{" "}
+            <strong>Endpoint:</strong> <code>https://presoai.stallion-ai.in/mcp</code>.
+            Transport is{" "}
             <strong>Streamable HTTP</strong> — the protocol's current
             recommendation for remote MCP. Long-running tools like{" "}
             <code>create_deck</code> emit <code>notifications/progress</code>{" "}
@@ -772,7 +771,7 @@ curl -X PUT "$UPLOAD_URL" --data-binary @./big-deck.pptx \\
           <Code lang="json" code={`{
   "mcpServers": {
     "preso": {
-      "url": "https://your-preso-host:8200/mcp",
+      "url": "https://presoai.stallion-ai.in/mcp",
       "headers": {
         "Authorization": "Bearer psf_YOUR_KEY",
         "X-Preso-Provider": "google",
@@ -799,7 +798,7 @@ curl -X PUT "$UPLOAD_URL" --data-binary @./big-deck.pptx \\
           <Code lang="json" code={`{
   "mcpServers": {
     "preso": {
-      "url": "https://your-preso-host:8200/mcp",
+      "url": "https://presoai.stallion-ai.in/mcp",
       "headers": {
         "Authorization": "Bearer psf_YOUR_KEY",
         "X-Preso-Provider": "anthropic",
@@ -821,7 +820,7 @@ curl -X PUT "$UPLOAD_URL" --data-binary @./big-deck.pptx \\
             n8n&apos;s <em>MCP Client</em> node accepts a Streamable HTTP URL
             and headers. Drop the same four headers into the node&apos;s
             <em> Headers</em> section, point the URL at{" "}
-            <code>https://your-preso-host:8200/mcp</code>, and the workflow
+            <code>https://presoai.stallion-ai.in/mcp</code>, and the workflow
             can call any of the seven tools. Useful for batched deck
             generation triggered by spreadsheets, forms, or webhooks.
           </p>
@@ -836,7 +835,7 @@ curl -X PUT "$UPLOAD_URL" --data-binary @./big-deck.pptx \\
           <Code lang="ts" code={`import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-const transport = new StreamableHTTPClientTransport(new URL("https://your-preso-host:8200/mcp"), {
+const transport = new StreamableHTTPClientTransport(new URL("https://presoai.stallion-ai.in/mcp"), {
   requestInit: {
     headers: {
       Authorization: "Bearer psf_YOUR_KEY",
@@ -905,12 +904,6 @@ await client.close();`} />
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </Button>
             </a>
-            <Link href="/settings">
-              <Button size="sm" variant="outline" className="gap-1.5">
-                Mint an API key
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </Button>
-            </Link>
           </div>
         </section>
       </DocsClient>

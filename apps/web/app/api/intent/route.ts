@@ -5,6 +5,8 @@ import { getRequiredSession } from "@/lib/auth";
 const schema = z.object({
   text: z.string().min(1).max(4000),
   hasExistingDeck: z.boolean().optional(),
+  audience: z.string().optional(),
+  numSlides: z.number().int().optional(),
 });
 
 const PYTHON_AGENT_URL =
@@ -35,6 +37,8 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           text: parsed.data.text,
           has_existing_deck: parsed.data.hasExistingDeck ?? false,
+          audience: parsed.data.audience,
+          num_slides: parsed.data.numSlides,
         }),
         signal: ctrl.signal,
       });

@@ -23,6 +23,7 @@
     "db:generate": "pnpm --filter @slideforge/db run generate",
     "db:migrate": "pnpm --filter @slideforge/db run migrate",
     "db:seed": "pnpm --filter @slideforge/db run seed",
+    "db:seed:styles": "pnpm --filter @slideforge/db run seed:styles",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
   },

@@ -196,6 +196,7 @@ async def generate_preso_pro_deck(
     llm = _llm_from_state(state)
     total = len(outline)
     specs: list[SlideSpec] = []
+    project_context = state.get("project_context", "") or ""
 
     for idx, item in enumerate(outline, start=1):
         intent = _intent_from_outline_item(item, idx, total)
@@ -220,6 +221,7 @@ async def generate_preso_pro_deck(
                 intent=intent,
                 title=title,
                 content_cue=cue,
+                project_context=project_context,
             )
             try:
                 validate_slide_spec(spec, deck_ctx)

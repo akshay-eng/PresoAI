@@ -113,6 +113,12 @@ class PPTGenerationState(TypedDict, total=False):
     # Visual context from references and chat images
     chat_image_keys: list[str]              # S3 keys of images pasted in chat
     reference_visual_parts: list[dict]      # Multimodal message parts from PPTX reference collages
+    # Per-project knowledge graph context. Markdown brief built by
+    # ProjectMemoryService.get_context() before the graph runs. Every engine
+    # node reads this and prepends it to the LLM prompt so the agent remembers
+    # everything that's happened in this project so far.
+    project_context: str
+    project_id: str
 
 
 class ExtractThemeRequest(BaseModel):

@@ -2,10 +2,11 @@
 
 import { useRouter, usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Home, LogOut, FileStack, PenTool, Settings, Plus, Search, Upload } from "lucide-react";
+import { Home, LogOut, FileStack, PenTool, Settings, Plus, Search, Upload, MessageCircleQuestion } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PresoLogoIcon } from "@/components/preso-logo";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 interface AppSidebarProps {
   onOpenPanel?: (panel: string) => void;
@@ -45,8 +46,15 @@ export function AppSidebar({ onOpenPanel, activePanel }: AppSidebarProps) {
       </nav>
 
       <div className="flex flex-col items-center gap-1 mt-auto">
+        <NotificationBell />
         <SidebarItem icon={Settings} label="Settings" active={pathname === "/settings"} onClick={() => router.push("/settings")} />
         <ThemeToggle />
+        <SidebarItem
+          icon={MessageCircleQuestion}
+          label="Support"
+          active={pathname?.startsWith("/support")}
+          onClick={() => router.push("/support")}
+        />
         <SidebarItem icon={LogOut} label="Sign out" onClick={() => signOut({ callbackUrl: "/" })} />
         <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-[11px] font-semibold text-primary mt-1" title={session?.user?.name || session?.user?.email || ""}>
           {initial}

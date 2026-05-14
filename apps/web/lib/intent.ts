@@ -19,6 +19,21 @@ function clientHeuristic(text: string): IntentResult | null {
   const t = text.trim().toLowerCase();
   if (!t) return null;
   const wordCount = t.split(/\s+/).length;
+
+  // Long, detailed prompts (>= 150 chars) are clearly deck requests — the
+  // LLM classifier returns "generate" for these every time. Short-circuit
+  // saves a 1-3s round-trip to the python-agent on every "Send" click.
+  if (text.trim().length >= 150) {
+    return { action: "generate", reply: "" };
+  }
+
+  // Explicit deck-request vocabulary — if the prompt contains any of these
+  // it's a generate intent regardless of length. Catches things like
+  // "make me a 5 slide pitch deck" (under 150 chars but unambiguous).
+  const deckVocab = /\b(deck|presentation|slides?|pitch|pptx?|powerpoint|keynote)\b/i;
+  if (deckVocab.test(text) && wordCount >= 4) {
+    return { action: "generate", reply: "" };
+  }
   const greetings = new Set([
     "hi", "hello", "hey", "yo", "hi.", "hello.", "hey there",
     "good morning", "good afternoon", "good evening",
@@ -64,10 +79,15 @@ function clientHeuristic(text: string): IntentResult | null {
 /**
  * Classify a user message. Falls back to {action:"generate"} on error so the
  * router never blocks a real deck request when the LLM is offline.
+ *
+ * `audience` and `numSlides` are passed through to the python-agent so the
+ * classifier doesn't ask for clarification on info the UI already has
+ * configured (the UI's selector always provides a default audience).
  */
 export async function classifyIntent(
   text: string,
-  hasExistingDeck = false
+  hasExistingDeck: boolean = false,
+  context?: { audience?: string; numSlides?: number },
 ): Promise<IntentResult> {
   const heuristic = clientHeuristic(text);
   if (heuristic) return heuristic;
@@ -78,7 +98,12 @@ export async function classifyIntent(
     const res = await fetch("/api/intent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, hasExistingDeck }),
+      body: JSON.stringify({
+        text,
+        hasExistingDeck,
+        audience: context?.audience,
+        numSlides: context?.numSlides,
+      }),
       signal: ctrl.signal,
     });
     clearTimeout(timer);

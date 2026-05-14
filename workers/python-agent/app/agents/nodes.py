@@ -166,6 +166,16 @@ def _get_knowledge_graph_context(state: PPTGenerationState) -> str:
         return ""
 
 
+def _get_project_memory_context(state: PPTGenerationState) -> str:
+    """Return the per-project memory brief built by the worker.
+
+    The worker preloads this into state["project_context"] before the graph
+    runs. We read it from state (not re-fetched) so every node sees a
+    consistent snapshot for the duration of the job.
+    """
+    return state.get("project_context", "") or ""
+
+
 def _get_llm(state: PPTGenerationState, temperature: float = 0.7, max_tokens: int | None = None) -> Any:
     model_cfg = state.get("selected_model", {})
     tokens = max_tokens or model_cfg.get("max_tokens", 8192)
@@ -176,6 +186,42 @@ def _get_llm(state: PPTGenerationState, temperature: float = 0.7, max_tokens: in
         api_key=model_cfg.get("api_key"),
         temperature=temperature,
         max_tokens=tokens,
+    )
+    return get_model(config)
+
+
+# Fast/cheap model used for UTILITY steps — query generation, prompt
+# enhancement, reflection, intent classification, naming. These steps don't
+# need a Pro-tier reasoner; a small flash-class model returns in ~3-8s vs
+# 30-60s for Pro. Switching just these steps cuts ~90s off every job.
+#
+# Mapping rules:
+#   google     → gemini-2.5-flash
+#   anthropic  → claude-3-5-haiku-latest
+#   openai     → gpt-4o-mini
+#   mistral    → mistral-small-latest
+# Falls back to the user's chosen model if we can't map (preserves correctness).
+_FAST_MODELS = {
+    "google": "gemini-2.5-flash",
+    "anthropic": "claude-3-5-haiku-latest",
+    "openai": "gpt-4o-mini",
+    "mistral": "mistral-small-latest",
+}
+
+
+def _get_fast_llm(state: PPTGenerationState, temperature: float = 0.3, max_tokens: int = 2048) -> Any:
+    """Cheap/fast LLM for utility steps. Falls back to the user's chosen
+    model when we don't have a known small variant for that provider."""
+    model_cfg = state.get("selected_model", {})
+    provider = (model_cfg.get("provider") or "openai").lower()
+    fast_model = _FAST_MODELS.get(provider) or model_cfg.get("model", "gpt-4o")
+    config = LLMConfig(
+        provider=provider,
+        model=fast_model,
+        base_url=model_cfg.get("base_url"),
+        api_key=model_cfg.get("api_key"),
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
     return get_model(config)
 
@@ -285,38 +331,48 @@ async def process_references(state: PPTGenerationState) -> dict:
 
 async def query_generator(state: PPTGenerationState) -> dict:
     publisher = _get_publisher(state)
-    await publisher.publish("researching", 0.2, "Enhancing prompt and generating research queries...")
+    await publisher.publish("researching", 0.2, "Generating research queries...")
 
-    llm = _get_llm(state, temperature=0.3)
+    # Use the FAST model for both enhancement and query generation. These are
+    # utility steps where a flash-class model is just as good as Pro and
+    # ~5x faster. Was 44-58s on Pro → ~5-10s on Flash.
+    llm = _get_fast_llm(state, temperature=0.3, max_tokens=2048)
 
     raw_prompt = state.get("user_prompt", "")
     audience = state.get("audience_type", "general")
     num_slides = state.get("num_slides", 10)
     ref_context = state.get("reference_context", "")
 
-    # Step 1: Enhance the user's prompt — add context, specificity, and structure
-    try:
-        enhance_result = await llm.ainvoke([
-            SystemMessage(content=(
-                "You are a presentation strategist. The user gave a rough prompt for a slide deck. "
-                "Your job is to ENHANCE it into a detailed, well-structured presentation brief. "
-                "Add: specific sub-topics to cover, what data/metrics would strengthen each point, "
-                "what visual formats would work best (tables, charts, diagrams, comparisons), "
-                "and what the key takeaway should be.\n"
-                "Return ONLY the enhanced prompt text (2-3 paragraphs). Do not add meta-commentary."
-            )),
-            HumanMessage(content=(
-                f"Original prompt: {raw_prompt}\n"
-                f"Audience: {audience}\n"
-                f"Number of slides: {num_slides}\n"
-                "Enhance this into a detailed presentation brief."
-            )),
-        ])
-        prompt = enhance_result.content if hasattr(enhance_result, "content") else raw_prompt
-        logger.info("prompt_enhanced", original_len=len(raw_prompt), enhanced_len=len(prompt))
-    except Exception as e:
-        logger.warning("prompt_enhancement_failed", error=str(e))
+    # Step 1: Enhance the user's prompt — but skip it when the prompt is
+    # already long/detailed (>500 chars). Enhancement is meant to fill in
+    # a vague one-liner; running it over a 2,000-char structured brief just
+    # wastes 5-15s without improving the output.
+    if len(raw_prompt) > 500:
+        logger.info("prompt_enhancement_skipped", reason="long_prompt", chars=len(raw_prompt))
         prompt = raw_prompt
+    else:
+        try:
+            enhance_result = await llm.ainvoke([
+                SystemMessage(content=(
+                    "You are a presentation strategist. The user gave a rough prompt for a slide deck. "
+                    "Your job is to ENHANCE it into a detailed, well-structured presentation brief. "
+                    "Add: specific sub-topics to cover, what data/metrics would strengthen each point, "
+                    "what visual formats would work best (tables, charts, diagrams, comparisons), "
+                    "and what the key takeaway should be.\n"
+                    "Return ONLY the enhanced prompt text (2-3 paragraphs). Do not add meta-commentary."
+                )),
+                HumanMessage(content=(
+                    f"Original prompt: {raw_prompt}\n"
+                    f"Audience: {audience}\n"
+                    f"Number of slides: {num_slides}\n"
+                    "Enhance this into a detailed presentation brief."
+                )),
+            ])
+            prompt = enhance_result.content if hasattr(enhance_result, "content") else raw_prompt
+            logger.info("prompt_enhanced", original_len=len(raw_prompt), enhanced_len=len(prompt))
+        except Exception as e:
+            logger.warning("prompt_enhancement_failed", error=str(e))
+            prompt = raw_prompt
 
     await publisher.publish("researching", 0.25, "Generating research queries...")
 
@@ -359,6 +415,11 @@ async def query_generator(state: PPTGenerationState) -> dict:
 
 
 async def single_search(query: str) -> list[dict]:
+    # Tavily caps queries at 400 chars; if we exceed it the whole search
+    # phase fails silently and the deck content suffers. Clip aggressively
+    # while preserving the most-informative leading tokens.
+    if len(query) > 380:
+        query = query[:380].rsplit(" ", 1)[0]
     try:
         client = AsyncTavilyClient(api_key=settings.tavily_api_key)
         response = await client.search(query, max_results=5)
@@ -423,7 +484,9 @@ async def synthesizer(state: PPTGenerationState) -> dict:
     publisher = _get_publisher(state)
     await publisher.publish("synthesizing", 0.5, "Deep research synthesis — extracting structured content...")
 
-    llm = _get_llm(state, temperature=0.4, max_tokens=8000)
+    # Synthesis structures research into stat/compare/flow lines — a fast
+    # model is fine here. Was 32-36s on Pro → ~6-10s on Flash.
+    llm = _get_fast_llm(state, temperature=0.4, max_tokens=8000)
     research = state.get("research_results", [])
     ref_context = state.get("reference_context", "")
     prompt = state.get("user_prompt", "")
@@ -513,6 +576,18 @@ async def content_planner(state: PPTGenerationState) -> dict:
     kg_context = _get_knowledge_graph_context(state)
     kg_section = f"\n\n## User's Design Preferences (from knowledge graph)\n{kg_context}" if kg_context else ""
 
+    # Inject per-project memory (prior outlines, decisions, entities, narrative).
+    # This is the single biggest lever for cross-turn coherence — the agent now
+    # knows what was discussed/generated/edited earlier in this project.
+    project_memory = _get_project_memory_context(state)
+    memory_section = (
+        f"\n\n## Project Memory (read this before planning)\n{project_memory}\n\n"
+        "Use the memory above to stay consistent with prior decks for this project: "
+        "don't repeat material the user has already seen, honor decisions already made, "
+        "and keep recurring entities front and center."
+        if project_memory else ""
+    )
+
     messages = [
         SystemMessage(content=(
             "You are a presentation content planner. Create a slide outline using "
@@ -542,6 +617,7 @@ async def content_planner(state: PPTGenerationState) -> dict:
             }.get(audience, f"Target audience: {audience}.\n")
             + f"{style_context}"
             f"{kg_section}"
+            f"{memory_section}"
         )),
     ]
 
@@ -1122,6 +1198,16 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         sys_parts.append(style_section)
     if kg_section:
         sys_parts.append(kg_section)
+    # Per-project memory — prior outlines, decisions, entities, rolling
+    # narrative. Cap at 1500 chars so it doesn't dominate the slide-writer
+    # prompt budget (the content_planner already saw the full brief).
+    project_memory = _get_project_memory_context(state)
+    if project_memory:
+        sys_parts.append(
+            "\n\n## Project Memory\n" + project_memory[:1500] +
+            "\n\nKeep this deck consistent with the above: same audience, same "
+            "voice, don't re-cover ground already covered."
+        )
     if logos_section:
         sys_parts.append(logos_section)
     if use_diagram_images:
@@ -1802,8 +1888,21 @@ async def reflection(state: PPTGenerationState) -> dict:
     - Adherence to pptx skill design guidelines
 
     If critical issues found and quality < 6, it revises the slides.
+
+    Skippable: this step costs ~60s on Pro and rarely changes anything
+    materially. We now skip it by default unless the job explicitly opts in
+    (set `enable_reflection=true` on selected_model.options). Going forward
+    the slide_writer prompt already enforces the rules reflection used to
+    check post-hoc.
     """
     publisher = _get_publisher(state)
+    model_cfg = state.get("selected_model", {})
+    options = (model_cfg.get("options") or {}) if isinstance(model_cfg, dict) else {}
+    if not options.get("enable_reflection", False):
+        await publisher.publish("reflection_skipped", 0.89, "Skipping reflection (off by default).")
+        logger.info("reflection_skipped_default")
+        return {"current_phase": "reflection_skipped"}
+
     await publisher.publish("reflecting", 0.87, "Reflecting on presentation quality...")
 
     slides = state.get("slides", [])

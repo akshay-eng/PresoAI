@@ -223,6 +223,11 @@ def _fallback_name(text: str) -> str:
 class ClassifyIntentRequest(BaseModel):
     text: str
     has_existing_deck: bool = False
+    # Audience + slide count are already chosen via the UI selectors. Passed
+    # here so the classifier doesn't ask the user to clarify info that's
+    # already been provided.
+    audience: str | None = None
+    num_slides: int | None = None
 
 
 class ClassifyIntentResponse(BaseModel):
@@ -289,7 +294,11 @@ async def classify_intent(request: ClassifyIntentRequest) -> ClassifyIntentRespo
         )
 
     # Cheap heuristic short-circuit for the most obvious cases — saves a round-trip.
-    heuristic = _heuristic_intent(text, request.has_existing_deck)
+    heuristic = _heuristic_intent(
+        text,
+        request.has_existing_deck,
+        has_ui_context=bool(request.audience or request.num_slides),
+    )
     if heuristic is not None:
         return heuristic
 
@@ -302,10 +311,26 @@ async def classify_intent(request: ClassifyIntentRequest) -> ClassifyIntentRespo
         # we don't block legitimate users when the routing model is offline.
         return ClassifyIntentResponse(action="generate", reply="")
 
-    user_text = (
-        f"has_existing_deck={'true' if request.has_existing_deck else 'false'}\n"
-        f"message: {text[:1500]}"
-    )
+    # Surface UI-provided context so the classifier doesn't ask the user to
+    # re-supply info they've already chosen in the form selectors.
+    ui_audience = (request.audience or "").strip().lower() or None
+    ui_slides = request.num_slides
+
+    context_lines = [
+        f"has_existing_deck={'true' if request.has_existing_deck else 'false'}",
+    ]
+    if ui_audience:
+        context_lines.append(f"audience_already_set={ui_audience}")
+    if ui_slides:
+        context_lines.append(f"num_slides_already_set={ui_slides}")
+    if ui_audience or ui_slides:
+        context_lines.append(
+            "Note: audience and/or slide count are already chosen via UI "
+            "selectors; do NOT ask the user to clarify those. Only ask for a "
+            "clearer topic if the message itself is too vague to build a deck."
+        )
+
+    user_text = "\n".join(context_lines) + f"\nmessage: {text[:1500]}"
     payload = {
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
         "systemInstruction": {"parts": [{"text": _INTENT_SYSTEM}]},
@@ -347,8 +372,14 @@ async def classify_intent(request: ClassifyIntentRequest) -> ClassifyIntentRespo
         return ClassifyIntentResponse(action="generate", reply="")
 
 
-def _heuristic_intent(text: str, has_existing_deck: bool):
-    """Match the most common cases without burning an LLM call."""
+def _heuristic_intent(text: str, has_existing_deck: bool, has_ui_context: bool = False):
+    """Match the most common cases without burning an LLM call.
+
+    `has_ui_context` is True when the caller has already filled in audience
+    and/or slide count via the form selectors. In that case we don't ask the
+    user to "tell me the audience and slides" for a single-word prompt — we
+    take the topic at face value and let generation proceed.
+    """
     t = text.strip().lower()
     # Very short messages (≤3 words) that are pure greetings or thanks.
     word_count = len(t.split())
@@ -379,9 +410,11 @@ def _heuristic_intent(text: str, has_existing_deck: bool):
                 "code, general research, or anything outside slide decks."
             ),
         )
-    # Single-word non-deck inputs that are clearly off-topic.
+    # Single-word non-deck inputs. If the UI already supplied audience/slides
+    # the topic itself is enough — let it through to generation.
     if word_count == 1 and t.isalpha() and t not in pure_greetings:
-        # Things like "weather", "kubernetes", "python" — too vague to be a deck request.
+        if has_ui_context:
+            return ClassifyIntentResponse(action="generate", reply="")
         return ClassifyIntentResponse(
             action="clarify",
             reply=(

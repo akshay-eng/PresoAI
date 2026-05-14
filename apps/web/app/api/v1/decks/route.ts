@@ -8,7 +8,7 @@
  *   prompt              string  required  — what the deck is about
  *   numSlides           int     required  — 1-15
  *   audienceType        enum    optional  — executive | technical | general | marketing  (default: general)
- *   engine              enum    optional  — preso-pro | node-worker | claude-code | claude-gemini  (default: node-worker)
+ *   engine              enum    optional  — preso-pro | node-worker | claude-code | preso-plus  (default: node-worker)
  *   creativeMode        bool    optional
  *   useDiagramImages    bool    optional
  *   styleProfileId      string  optional
@@ -50,6 +50,9 @@ export const GET = withApiAuth(
     const projects = await prisma.project.findMany({
       where: {
         userId: ctx.user.id,
+        // Only surface decks that originated from the API/MCP — keeps this
+        // endpoint scoped to "things this caller can plausibly own/track".
+        source: { in: ["api", "mcp"] },
         ...(search ? { name: { contains: search, mode: "insensitive" as const } } : {}),
       },
       take: limit + 1,
@@ -92,7 +95,7 @@ const createDeckSchema = z.object({
   prompt: z.string().min(1).max(10000),
   numSlides: z.number().int().min(1).max(15),
   audienceType: z.enum(["executive", "technical", "general", "marketing"]).default("general"),
-  engine: z.enum(["claude-code", "claude-gemini", "node-worker", "preso-pro"]).default("node-worker"),
+  engine: z.enum(["claude-code", "preso-plus", "node-worker", "preso-pro"]).default("node-worker"),
   creativeMode: z.boolean().default(false),
   useDiagramImages: z.boolean().default(false),
   styleProfileId: z.string().optional(),
@@ -252,6 +255,12 @@ export const POST = withApiAuth(
 
     const langGraphThreadId = `job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+    // Detect MCP-routed calls so the API-usage page can split them out from
+    // direct REST traffic. The MCP server sets a recognizable User-Agent.
+    const ua = request.headers.get("user-agent") || "";
+    const isMcp = /preso-mcp|@modelcontextprotocol|fastmcp/i.test(ua);
+    const projectSource = isMcp ? "mcp" : "api";
+
     const { project, job } = await prisma.$transaction(async (tx) => {
       const project = await tx.project.create({
         data: {
@@ -260,6 +269,8 @@ export const POST = withApiAuth(
           numSlides: parsed.data.numSlides,
           audienceType: parsed.data.audienceType,
           userId: ctx.user.id,
+          source: projectSource,
+          apiKeyId: ctx.apiKey.id,
           ...(modelDispatch!.llmConfigId ? { llmConfigId: modelDispatch!.llmConfigId } : {}),
           ...(parsed.data.styleProfileId ? { styleProfileId: parsed.data.styleProfileId } : {}),
         },

@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Code2, Plus, Loader2, Trash2, Copy, Eye, EyeOff, X, CheckCircle, AlertTriangle,
+  Code2, Plus, Loader2, Trash2, Copy, Eye, EyeOff, X, CheckCircle, AlertTriangle, Globe, BookOpen, Activity, ArrowUpRight,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,9 @@ type ApiKey = {
   revokedAt: string | null;
   createdAt: string;
 };
+
+const REST_BASE_URL = "https://presoai.stallion-ai.in/api/v1";
+const MCP_URL = "https://presoai.stallion-ai.in/mcp";
 
 const EXPIRY_CHOICES: Array<{ value: string; label: string }> = [
   { value: "1d", label: "1 day" },
@@ -152,9 +156,58 @@ export function DeveloperTab() {
 
   return (
     <>
+      {/* Host URLs — REST API base URL + MCP server URL, copy-friendly. Shown
+          above the keys list so it's the first thing devs see when wiring
+          up a client. */}
+      <div className="flex items-end justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Globe className="h-3.5 w-3.5 text-primary" />
+            Host URLs
+          </h2>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Base endpoints for the REST API and MCP server. Authenticate with a key from below.
+          </p>
+        </div>
+        <Link
+          href="/docs"
+          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0"
+        >
+          <BookOpen className="h-3 w-3" />
+          Docs
+        </Link>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card overflow-hidden mb-6">
+        <div className="divide-y divide-border/40">
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3">
+            <Badge variant="outline" className="text-[9px] h-4 px-1.5 font-mono shrink-0">REST</Badge>
+            <p className="font-mono text-[11px] text-muted-foreground truncate">{REST_BASE_URL}</p>
+            <button
+              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+              onClick={() => handleCopy(REST_BASE_URL, "REST base URL copied")}
+              title="Copy REST base URL"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3">
+            <Badge variant="outline" className="text-[9px] h-4 px-1.5 font-mono shrink-0">MCP</Badge>
+            <p className="font-mono text-[11px] text-muted-foreground truncate">{MCP_URL}</p>
+            <button
+              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+              onClick={() => handleCopy(MCP_URL, "MCP URL copied")}
+              title="Copy MCP URL"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Section heading — outside the card, plain header pattern matching the
           rest of Settings (consistent with Usage, Coupon, etc.) */}
-      <div className="flex items-end justify-between mb-3">
+      <div className="flex items-end justify-between mb-3 gap-3">
         <div>
           <h2 className="text-sm font-semibold flex items-center gap-2">
             <Code2 className="h-3.5 w-3.5 text-primary" />
@@ -164,14 +217,23 @@ export function DeveloperTab() {
             For the public REST API and MCP server. Treat each key like a password.
           </p>
         </div>
-        <Button
-          size="sm"
-          className="h-8 text-xs shrink-0"
-          onClick={() => setShowCreate(true)}
-        >
-          <Plus className="h-3 w-3 mr-1" />
-          Generate key
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link href="/api-usage">
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5">
+              <Activity className="h-3 w-3" />
+              API usage
+              <ArrowUpRight className="h-3 w-3" />
+            </Button>
+          </Link>
+          <Button
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => setShowCreate(true)}
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            Generate key
+          </Button>
+        </div>
       </div>
 
       {/* Keys list — empty state OR rows */}
@@ -450,10 +512,12 @@ export function DeveloperTab() {
         )}
       </AnimatePresence>
 
-      {/* Footer note about API + MCP coming next */}
       <p className="text-[11px] text-muted-foreground/70 mt-4 px-1">
-        <span className="font-medium text-foreground/80">Coming next:</span> the public REST API
-        and MCP server endpoints these keys authenticate — docs and base URL will appear here once they&apos;re live.
+        Need help wiring this up? See the{" "}
+        <Link href="/docs" className="text-foreground/80 hover:text-foreground underline underline-offset-2">
+          full API &amp; MCP docs
+        </Link>{" "}
+        for curl examples, client config snippets, and the OpenAPI spec.
       </p>
     </>
   );

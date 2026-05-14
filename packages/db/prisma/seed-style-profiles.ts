@@ -11,7 +11,7 @@
 
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+const standalonePrisma = new PrismaClient();
 
 // ─────────────────────────────────────────────────────────────────────
 // IBM — Clean, technical, restrained. Authority through clarity.
@@ -353,9 +353,10 @@ DO NOT: use IBM-style ultra-minimal layouts (we want more visual richness), heav
 
 const PROFILES = [IBM_PROFILE, ICICI_PROFILE, WIPRO_PROFILE];
 
-async function main() {
+// Idempotent: upserts by (name, isGlobal:true). Safe to re-run on every deploy.
+// Exposed so the main seed can call this without spawning a separate process.
+export async function seedGlobalStyleProfiles(prisma: PrismaClient) {
   for (const p of PROFILES) {
-    // Find existing global profile by name (since we don't have a unique on name+isGlobal)
     const existing = await prisma.styleProfile.findFirst({
       where: { name: p.name, isGlobal: true },
     });
@@ -393,12 +394,18 @@ async function main() {
   console.log(`\nDone. ${PROFILES.length} default style profiles seeded.`);
 }
 
-main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error(e);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+// Standalone runner — invoked by `pnpm db:seed:styles`.
+// Only runs when this file is the process entry point.
+const isMain = process.argv[1]?.endsWith("seed-style-profiles.ts") ||
+               process.argv[1]?.endsWith("seed-style-profiles.js");
+if (isMain) {
+  seedGlobalStyleProfiles(standalonePrisma)
+    .then(async () => {
+      await standalonePrisma.$disconnect();
+    })
+    .catch(async (e) => {
+      console.error(e);
+      await standalonePrisma.$disconnect();
+      process.exit(1);
+    });
+}

@@ -14,7 +14,12 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "20", 10), 50);
     const search = searchParams.get("search");
 
-    const where: Record<string, unknown> = { userId: session.user.id };
+    // Hide API/MCP-generated projects from the regular dashboard — they
+    // live on /api-usage. Schema default is "ui" so all rows have a value.
+    const where: Record<string, unknown> = {
+      userId: session.user.id,
+      source: "ui",
+    };
     if (search) {
       where.name = { contains: search, mode: "insensitive" };
     }
@@ -80,36 +85,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate a short, descriptive project name from the user's prompt
-    // before persisting — so the dashboard / project page never displays the
-    // truncated 60-char raw prompt. We tolerate failures: if naming returns
-    // null (timeout / no API key / etc) we fall back to whatever name the
-    // client sent (which is the truncated prompt).
-    let resolvedName = parsed.data.name;
-    if (parsed.data.prompt && parsed.data.prompt.length > 0) {
-      try {
-        const nice = await summarizeForName(parsed.data.prompt, "project");
-        if (nice && nice.length >= 2) resolvedName = nice;
-      } catch (err) {
-        logger.warn(
-          { err: (err as Error).message },
-          "Project name summarization failed, keeping raw name"
-        );
-      }
-    }
-
+    // Persist the project IMMEDIATELY with the client-supplied (truncated)
+    // name so navigation isn't blocked by an LLM round-trip. We then fire a
+    // background rename — when the LLM returns a nicer title, we UPDATE the
+    // row. The dashboard's React Query will pick up the new name on the next
+    // refetch. Saves 1-3s of perceived latency on every "Send" click.
     const project = await prisma.project.create({
       data: {
         ...parsed.data,
-        name: resolvedName,
         userId: session.user.id,
       },
-      include: {
-        template: true,
-      },
+      include: { template: true },
     });
 
-    logger.info({ projectId: project.id, name: resolvedName }, "Project created");
+    logger.info({ projectId: project.id, name: project.name }, "Project created");
+
+    // Background-rename — does not block the response. Errors are logged but
+    // never surfaced to the user.
+    if (parsed.data.prompt && parsed.data.prompt.length > 0) {
+      void (async () => {
+        try {
+          const nice = await summarizeForName(parsed.data.prompt, "project");
+          if (nice && nice.length >= 2 && nice !== project.name) {
+            await prisma.project.update({
+              where: { id: project.id },
+              data: { name: nice },
+            });
+            logger.info({ projectId: project.id, name: nice }, "Project renamed");
+          }
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message, projectId: project.id },
+            "Background project rename failed"
+          );
+        }
+      })();
+    }
+
     return NextResponse.json(project, { status: 201 });
   } catch (err) {
     if ((err as Error).message === "Unauthorized") {

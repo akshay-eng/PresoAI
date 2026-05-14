@@ -21,9 +21,9 @@ const inputSchema = z.object({
   audienceType: z.enum(["executive", "technical", "general", "marketing"])
     .optional()
     .describe("Audience type. Tunes density, tone, and visual style. Default: general."),
-  engine: z.enum(["preso-pro", "node-worker", "claude-code", "claude-gemini"])
+  engine: z.enum(["preso-pro", "node-worker", "claude-code", "preso-plus"])
     .optional()
-    .describe("Generation engine. Default: node-worker (Preso Elite — best mix of quality and speed)."),
+    .describe("Generation engine. Default: node-worker (Preso Elite — best mix of quality and speed). `preso-plus` runs Claude Code via an open-source Anthropic→Gemini proxy; no Anthropic key required."),
   creativeMode: z.boolean().optional()
     .describe("When true, pushes the agent toward unconventional layouts (pyramids, hub-and-spoke, comparison diptychs). Default: false."),
   useDiagramImages: z.boolean().optional()

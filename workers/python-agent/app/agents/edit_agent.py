@@ -87,7 +87,15 @@ Code's `Edit` tool, applied to slide source:
      structure. Just patch the parts the user asked about.
   3. NEVER restyle the deck. NEVER swap the palette. NEVER re-derive colors.
      The locked palette is binding — every hex value must come from it.
-  4. NEVER add or remove a slide unless the instruction explicitly says so.
+  4. ADD a new slide when the instruction asks to add one (e.g. "add a closing
+     slide", "append a thank-you slide", "insert a slide about X"). To add a
+     slide, include it in the slides[] array with `slide_number` equal to
+     (existing deck length + 1) for an append, or the position where it
+     should be inserted (existing slides at or after that number shift down).
+     Use the same locked palette and visual language as the rest of the deck.
+     REMOVE a slide when the instruction explicitly asks to remove one by
+     setting `"remove": true` on its entry. Default to NOT changing the deck
+     length unless the instruction is explicit.
   5. NEVER reformat working code "for cleanliness." Tiny diffs only.
 
 Available globals inside slide code:
@@ -133,6 +141,7 @@ async def run_edit_agent(
     style_guide: str,
     visual_style: dict,
     selected_model: dict,
+    project_context: str = "",
 ) -> dict:
     """Run the edit agent and return the full patched slides array."""
 
@@ -169,9 +178,23 @@ async def run_edit_agent(
 
     slides_dump = json.dumps(existing_slides, indent=2)
 
+    # Per-project memory — prior outlines, decisions, entities, narrative.
+    # Critical for edits: the agent often needs to remember what the user
+    # discussed in earlier turns (e.g. "change the third bullet to what we
+    # talked about yesterday") which lives only in memory.
+    memory_block = ""
+    if project_context:
+        memory_block = (
+            f"\n## Project Memory (consult this before patching)\n{project_context[:2500]}\n"
+            "Use this to interpret references like 'the chart we discussed' or "
+            "'apply yesterday's decision' — past turns may not appear elsewhere "
+            "in this prompt.\n"
+        )
+
     user_msg = (
         f"## Locked Brand Palette (every hex MUST come from here)\n{palette_block}\n"
         f"{style_block}\n"
+        f"{memory_block}"
         f"## User's edit instruction\n{instruction}\n"
         f"{target_block}\n"
         f"## Current slide source (the source of truth)\n```json\n{slides_dump}\n```\n\n"
@@ -210,13 +233,17 @@ async def run_edit_agent(
             "summary": summary or "no changes were made",
         }
 
-    # Index incoming patches by slide_number so we can splice them back in.
+    # Index incoming patches by slide_number, and separately track removals.
     patches: dict[int, dict] = {}
+    removals: set[int] = set()
     for s in edited_slides:
         if not isinstance(s, dict):
             continue
         sn = s.get("slide_number")
         if not isinstance(sn, int):
+            continue
+        if s.get("remove") is True:
+            removals.add(sn)
             continue
         # Sanity: every patched slide must have non-empty code.
         if not isinstance(s.get("code"), str) or not s["code"].strip():
@@ -229,20 +256,45 @@ async def run_edit_agent(
             "code": s["code"],
         }
 
-    # Splice — preserve the original ordering and length of the deck.
+    existing_max = max(
+        (o.get("slide_number") for o in existing_slides if isinstance(o.get("slide_number"), int)),
+        default=0,
+    )
+
+    # Splice — handle three cases:
+    #   1. UPDATE  — patch slide_number ≤ existing_max → swap in place
+    #   2. REMOVE  — slide_number in removals → drop from output
+    #   3. INSERT  — patch slide_number == existing_max + N → append in order
     final_slides: list[dict] = []
     actually_edited: list[int] = []
     for original in existing_slides:
         sn = original.get("slide_number")
+        if isinstance(sn, int) and sn in removals:
+            actually_edited.append(sn)
+            continue  # drop
         if isinstance(sn, int) and sn in patches:
             final_slides.append(patches[sn])
             actually_edited.append(sn)
         else:
             final_slides.append(original)
 
+    # Any patches whose slide_number is beyond the existing deck are new
+    # slides — append them in slide_number order.
+    new_slide_numbers = sorted(sn for sn in patches.keys() if sn > existing_max)
+    for sn in new_slide_numbers:
+        final_slides.append(patches[sn])
+        actually_edited.append(sn)
+
+    # Renumber sequentially so the renderer always sees 1..N (in case the LLM
+    # used non-sequential numbers like 6 when the existing deck is 5).
+    for i, slide in enumerate(final_slides, start=1):
+        slide["slide_number"] = i
+
     logger.info(
         "edit_agent_completed",
         edited=actually_edited,
+        added=new_slide_numbers,
+        removed=sorted(removals),
         summary=summary[:200] if summary else None,
     )
 

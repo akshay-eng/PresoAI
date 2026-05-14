@@ -54,8 +54,45 @@ model User {
   downloadEvents     DownloadEvent[]
   userUploads        UserUpload[]
   apiKeys            ApiKey[]
+  supportTickets     SupportTicket[]
 
   @@map("users")
+}
+
+// User-filed support / issue reports. Form is structured (dropdowns) so admin
+// triage can filter by category/severity/area; description is the single
+// free-text field. The admin dashboard renders these as cards.
+model SupportTicket {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Dropdowns — values are enforced by the API zod schema, not by Postgres
+  // enums (so adding a new option doesn't require a migration).
+  category    String   // bug | feature_request | ui_issue | performance | billing | account | other
+  severity    String   // low | medium | high | critical
+  area        String   // generation | editing | preview | dashboard | api | account | other
+
+  // Single free-text field (max 4000 chars).
+  description String
+
+  // Optional structured pointers that help admin debug. Captured by the
+  // client at submit time — not the user's responsibility.
+  projectId   String?
+  url         String?
+  userAgent   String?
+
+  // Triage state — admin updates via PATCH.
+  status      String   @default("open")    // open | in_progress | resolved | closed
+  adminNotes  String?
+  resolvedAt  DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status, createdAt])
+  @@map("support_tickets")
 }
 
 // Audit log for every inbound v1 API request. Written fire-and-forget so it
@@ -282,6 +319,15 @@ model Project {
   templateId     String?
   llmConfigId    String?
   styleProfileId String?
+  // Where the project came from: "ui" (default — created in the dashboard),
+  // "api" (v1 REST endpoint), or "mcp" (MCP server tool call). API + MCP
+  // projects are hidden from the regular dashboard and surfaced on the
+  // dedicated /api-usage page instead.
+  source         String   @default("ui")
+  // The API key that minted this project, when source != "ui". NULL for
+  // UI-created projects. Lets us show "which key generated which deck" in
+  // the API usage dashboard.
+  apiKeyId       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -293,9 +339,51 @@ model Project {
   presentations  Presentation[]
   jobs           Job[]
   chatMessages   ChatMessage[]
+  memory         ProjectMemory?
 
   @@index([userId])
+  @@index([userId, source, createdAt])
+  @@index([apiKeyId, createdAt])
   @@map("projects")
+}
+
+// Per-project knowledge graph. 1-to-1 with Project. Accumulates everything
+// the agent has learned about the project: extracted entities, design
+// decisions, prior outlines, surgical edits, user preferences, plus a rolling
+// LLM-summarized narrative. Read by every engine; written by the worker
+// after each successful generation/edit.
+model ProjectMemory {
+  id          String   @id @default(cuid())
+  projectId   String   @unique
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Extracted nouns/products/tools/people. Array of { label, kind, mentions }.
+  entities    Json     @default("[]")
+
+  // Logged design/scope decisions. Array of { what, why, at }.
+  decisions   Json     @default("[]")
+
+  // Prior outlines from successful jobs. Array of { jobId, generatedAt, slides: [{ title, summary }] }.
+  outlines    Json     @default("[]")
+
+  // Surgical edits log. Array of { instruction, targetSlides, at }.
+  edits       Json     @default("[]")
+
+  // User preferences inferred from chat / settings: { engine, creativeMode, audience, ... }.
+  preferences Json     @default("{}")
+
+  // LLM-rolled prose summary the agent prompt prepends. Capped ~2000 chars.
+  // Rebuilt periodically from the structured fields above.
+  narrative   String   @default("")
+
+  // Monotonic counter incremented on every write. Used to decide when to
+  // re-summarize narrative (e.g. every 5 writes).
+  version     Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("project_memory")
 }
 
 model Template {

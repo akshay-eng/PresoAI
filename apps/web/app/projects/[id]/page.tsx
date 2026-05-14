@@ -27,6 +27,9 @@ import {
   Eye,
   PenTool,
   BarChart3,
+  Square,
+  Copy as CopyIcon,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,15 +42,18 @@ import { ThemePreview } from "@/components/project/theme-preview";
 import { LLMSelector } from "@/components/project/llm-selector";
 import { StyleProfileSelector } from "@/components/project/style-profile-selector";
 import { StyleProfileViewer } from "@/components/project/style-profile-viewer";
-import { useGenerationStore } from "@/lib/stores/generation-store";
+import { MemoryDrawer } from "@/components/project/memory-drawer";
+import { useProjectGeneration, useGenerationStore } from "@/lib/stores/generation-store";
 import { useChatStore, type ChatMessage } from "@/lib/stores/chat-store";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { LottieAnimation } from "@/components/lottie-animation";
 import { SlidePlanPanel } from "@/components/generation/slide-plan-panel";
+import { JobErrorCard } from "@/components/generation/job-error-card";
 import { PptxPreview } from "@/components/generation/pptx-preview";
 import { CollaboraEditor } from "@/components/generation/collabora-editor";
 import { api } from "@/lib/api-client";
 import { classifyIntent } from "@/lib/intent";
+import { buildCompletionSummary } from "@/lib/completion-summary";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -90,8 +96,8 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const {
     setJobId, isGenerating, jobId, phase, progress, message, outline, error,
-    updateProgress, presentationId: completedPresentationId,
-  } = useGenerationStore();
+    errorDetails, updateProgress, presentationId: completedPresentationId, hydrate,
+  } = useProjectGeneration(id);
 
   const addMessage = useChatStore((s) => s.addMessage);
   const getMessages = useChatStore((s) => s.getMessages);
@@ -102,6 +108,107 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages.length]);
+
+  // ── Active-job reconciliation on mount ───────────────────────────────
+  // The BullMQ worker keeps running on the backend even if the user
+  // navigates away. This effect re-attaches the UI to whatever job is
+  // currently in flight (or recently completed) for this project so the
+  // progress panel resumes instead of restarting.
+  //
+  // Runs once per project mount. If the store already has a fresh
+  // generating slot for this project, we skip the round-trip — SSE will
+  // re-attach via the other effect.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const r = await fetch(`/api/projects/${id}/active-job`);
+        if (cancelled) return;
+        // Project no longer exists in the DB — wipe any persisted in-flight
+        // slot so the UI stops showing "processing/pending" for a zombie
+        // project. The router will already redirect on the project fetch,
+        // but the generation panel reads from the persistent store which
+        // would otherwise outlive the deletion.
+        if (r.status === 404) {
+          useGenerationStore.getState().reset(id);
+          return;
+        }
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          status?: string | null;
+          jobId?: string;
+          isTerminal?: boolean;
+          progress?: number;
+          currentPhase?: string;
+          output?: Record<string, unknown> | null;
+          error?: string | null;
+        };
+        if (cancelled) return;
+        if (!j.status || !j.jobId) return; // no jobs yet for this project
+
+        // Always reconcile against the server's reality. The persisted slot
+        // can hold stale "starting" state from the initial submit, or a
+        // partial in-flight phase from before the user navigated away.
+        // Server-side currentPhase/progress is the source of truth.
+        const known = useGenerationStore.getState().slots[id];
+        if (!j.isTerminal) {
+          // In-flight — hydrate store so SSE useEffect (below) reattaches.
+          // Only overwrite phase/progress if the server has a more recent
+          // value than what we have locally (avoids snapping back to an
+          // older phase while SSE was about to deliver the next one).
+          const serverProgress = typeof j.progress === "number" ? j.progress : 0;
+          const localProgress = known?.progress ?? 0;
+          hydrate({
+            jobId: j.jobId,
+            isGenerating: true,
+            phase:
+              serverProgress >= localProgress
+                ? j.currentPhase || known?.phase || "starting"
+                : known?.phase || "starting",
+            progress: Math.max(serverProgress, localProgress),
+            message: known?.message || "Resuming…",
+            error: null,
+            lastEventAt: Date.now(),
+          });
+        } else if (j.status === "COMPLETED" && j.output) {
+          // Terminal — fold completion data into store. Re-hydrate even if
+          // the jobId matches, because the persisted slot may be mid-flight
+          // from before the worker actually finished (which is exactly the
+          // case where the user left mid-build and came back to a deck
+          // that's now ready).
+          const sameJobAndComplete =
+            known?.jobId === j.jobId && known?.phase === "complete";
+          if (!sameJobAndComplete) {
+            hydrate({
+              jobId: j.jobId,
+              isGenerating: false,
+              phase: "complete",
+              progress: 1,
+              presentationId: (j.output.presentationId as string) || known?.presentationId || null,
+              message: "Presentation ready!",
+              lastEventAt: Date.now(),
+            });
+          }
+        } else if (j.status === "FAILED") {
+          hydrate({
+            jobId: j.jobId,
+            isGenerating: false,
+            phase: "failed",
+            error: j.error || "Generation failed",
+            lastEventAt: Date.now(),
+          });
+        }
+      } catch {
+        // Best-effort — silent failure means UI just won't auto-resume.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, hydrate]);
 
   // When generation progress updates, save as assistant message
   // Track which job phases have been saved to avoid duplicate chat messages
@@ -127,19 +234,46 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     // disappear once the job completes.
     if (phase === "complete") {
       savedPhasesRef.current.add(key);
+      // Distinguish edit-completion from fresh-build completion so the chat
+      // narration matches what the user actually asked for.
+      const editCtx = pendingEditRef.current;
+      pendingEditRef.current = null;
+      const summary = buildCompletionSummary({
+        outline,
+        slideCount: outline.length || numSlides,
+        engine,
+        audience: audienceType,
+        asEdit: editCtx ? { instruction: editCtx.instruction, targetSlides: editCtx.targetSlides } : undefined,
+      });
       addMessage(id, {
         role: "assistant",
-        content: "Presentation generated successfully! You can download it now.",
-        metadata: { phase: "complete", jobId, presentationId: completedPresentationId || undefined },
+        content: summary,
+        metadata: {
+          phase: "complete",
+          jobId,
+          presentationId: completedPresentationId || undefined,
+          outline: outline.length > 0 ? outline.map((o) => ({ title: o.title })) : undefined,
+          mode: editCtx ? "edit" : "generate",
+        },
       });
       setActivePanel("preview");
       queryClient.invalidateQueries({ queryKey: ["project", id] });
     } else if (phase === "failed" && error) {
       savedPhasesRef.current.add(key);
+      // Persist the structured error envelope so the chat card renders
+      // identically after a refresh — without it we'd fall back to the raw
+      // error string and lose the actionable hint/buttons.
       addMessage(id, {
         role: "system",
-        content: `Generation failed: ${error}`,
-        metadata: { phase: "failed", jobId, error },
+        content: errorDetails?.title
+          ? `${errorDetails.title} — ${errorDetails.message ?? error}`
+          : `Generation failed: ${error}`,
+        metadata: {
+          phase: "failed",
+          jobId,
+          error,
+          errorDetails: errorDetails ?? undefined,
+        },
       });
     }
   }, [phase, jobId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -150,13 +284,14 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [selectedModelId, setSelectedModelId] = useState("");
   const [projectName, setProjectName] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const [engine, setEngine] = useState<"claude-code" | "claude-gemini" | "node-worker" | "preso-pro">("node-worker");
+  const [engine, setEngine] = useState<"claude-code" | "preso-plus" | "node-worker" | "preso-pro">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
   const [useDiagramImages, setUseDiagramImages] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [activePanel, setActivePanel] = useState<"none" | "outline" | "plan" | "preview" | "files" | "editor" | "template" | "references" | "model" | "style" | "engine">("none");
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [latestPresentationId, setLatestPresentationId] = useState<string | null>(null);
   const [editingOutline, setEditingOutline] = useState(false);
   const [editedOutline, setEditedOutline] = useState<typeof outline>([]);
@@ -253,7 +388,12 @@ export default function ProjectPage({ params }: ProjectPageProps) {
           if (hasPresentations) {
             addMessage(id, {
               role: "assistant",
-              content: "Presentation generated successfully! You can download it now.",
+              content: buildCompletionSummary({
+                outline: [],
+                slideCount: p.presentations?.[0]?.slideCount ?? p.numSlides ?? 0,
+                engine: "node-worker",
+                audience: p.audienceType || "general",
+              }),
               metadata: { phase: "complete" },
             });
           }
@@ -346,7 +486,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       setActivePanel("plan");
       addMessage(id, {
         role: "assistant",
-        content: `Starting presentation generation using ${engine === "preso-pro" ? "Preso Pro" : engine === "claude-gemini" ? "Preso Plus" : engine === "claude-code" ? "Preso Code" : "Preso Elite"} engine${creativeMode ? " with Creative Mode" : ""}...`,
+        content: `Starting presentation generation using ${engine === "preso-pro" ? "Preso Pro" : engine === "preso-plus" ? "Preso Plus" : engine === "claude-code" ? "Preso Code" : "Preso Elite"} engine${creativeMode ? " with Creative Mode" : ""}...`,
         metadata: { phase: "starting", jobId: data.jobId, engine },
       });
       // Auto-open the plan panel to show live progress (Canva-like experience)
@@ -362,17 +502,43 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     },
   });
 
+  // The most recent edit instruction in flight — read by the completion
+  // handler so the chat summary frames the result as "Done — applied your
+  // edit to slide 3" instead of "Built a fresh 5-slide deck". Cleared on
+  // completion. Ref (not state) because we don't need a re-render when it
+  // changes; the SSE handler reads it inline.
+  const pendingEditRef = useRef<{ instruction: string; targetSlides?: number[] } | null>(null);
+
+  // Inline-edit state for user message bubbles. When set, the bubble with
+  // this id renders a textarea instead of static text. Saving updates the
+  // chat-store entry AND fires a follow-up so the agent iterates on the
+  // edited prompt — same UX pattern as ChatGPT / Claude's edit-and-resend.
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<string>("");
+
+  // Which long-prompt bubbles the user has expanded. Long prompts collapse
+  // by default to keep the chat column tidy when a preview/editor panel is
+  // open alongside — otherwise a 1500-char structured brief dominates the
+  // viewport and squeezes the preview.
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(() => new Set());
+
   // Surgical edit: patches the existing deck without re-running the full pipeline.
   // No chat narration — the live progress message renders next to the progress
   // bar (same as the initial generation flow) and disappears on completion.
   const editMutation = useMutation({
-    mutationFn: (vars: { instruction: string; modelId: string; targetSlides?: number[] }) =>
-      api.editPresentation(id, vars),
+    mutationFn: (vars: { instruction: string; modelId: string; targetSlides?: number[] }) => {
+      pendingEditRef.current = {
+        instruction: vars.instruction,
+        targetSlides: vars.targetSlides,
+      };
+      return api.editPresentation(id, vars);
+    },
     onSuccess: (data) => {
       setJobId(data.jobId);
       setActivePanel("plan");
     },
     onError: (err: Error) => {
+      pendingEditRef.current = null;
       toast.error(err.message);
       addMessage(id, {
         role: "system",
@@ -452,6 +618,18 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     }
   }, [outline]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-open the plan panel whenever a job is in flight for this project.
+  // Covers the revisit case: user navigated away mid-generation and came
+  // back — without this effect, `activePanel` resets to "none" on remount
+  // and the user sees a blank page even though the job is still running.
+  // Once the job hits a terminal phase the panel stays open so the user
+  // can review what was generated.
+  useEffect(() => {
+    if (isGenerating && activePanel !== "plan" && activePanel !== "preview" && activePanel !== "editor") {
+      setActivePanel("plan");
+    }
+  }, [isGenerating]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [phase, message, hasSubmitted]);
@@ -487,7 +665,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     // requests get a friendly assistant reply in chat — no generation.
     const hasPresentation = (p?.presentations?.length || 0) > 0;
     try {
-      const intent = await classifyIntent(currentPrompt, hasPresentation);
+      const intent = await classifyIntent(currentPrompt, hasPresentation, { audience: audienceType, numSlides });
       if (intent.action !== "generate" && intent.action !== "edit") {
         addMessage(id, {
           role: "assistant",
@@ -595,7 +773,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     // Guardrail: classify the follow-up. If it's a greeting / off-topic /
     // vague request, reply in chat without kicking off any work.
     try {
-      const intent = await classifyIntent(currentPrompt, hasPresentation);
+      const intent = await classifyIntent(currentPrompt, hasPresentation, { audience: audienceType, numSlides });
       if (intent.action === "greeting" || intent.action === "decline" || intent.action === "clarify") {
         addMessage(id, {
           role: "assistant",
@@ -766,7 +944,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
     { key: "preso-pro" as const, label: "Preso Pro", disabled: false },
     { key: "node-worker" as const, label: "Preso Elite", disabled: false },
     { key: "claude-code" as const, label: "Preso Code", disabled: true },
-    { key: "claude-gemini" as const, label: "Preso Plus", disabled: true },
+    { key: "preso-plus" as const, label: "Preso Plus", disabled: false },
   ];
 
   const attachOptions = [
@@ -833,7 +1011,22 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                 }
               }}
             />
+            <button
+              type="button"
+              onClick={() => setMemoryOpen(true)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted/40"
+              title="View what the agent has learned about this project"
+            >
+              <Brain className="h-3.5 w-3.5" />
+              Memory
+            </button>
           </div>
+
+          <MemoryDrawer
+            projectId={id}
+            open={memoryOpen}
+            onClose={() => setMemoryOpen(false)}
+          />
 
           {/* Chat area — full width */}
           <div className="flex-1 overflow-y-auto">
@@ -872,27 +1065,233 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                   className={msg.role === "user" ? "flex justify-end" : ""}
                 >
                   {msg.role === "user" ? (
-                    <div className="bg-primary/10 border border-primary/15 rounded-2xl rounded-tr-sm px-4 py-3 max-w-[85%] min-w-0">
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</p>
-                      {msg.metadata && (
-                        <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground">
-                          {msg.metadata.audienceType && <span>{msg.metadata.audienceType} audience</span>}
-                          {msg.metadata.numSlides && (
-                            <>
-                              <span className="text-muted-foreground/30">|</span>
-                              <span>{msg.metadata.numSlides} slides</span>
-                            </>
-                          )}
+                    editingMessageId === msg.id ? (
+                      // ── Inline-edit mode ────────────────────────────
+                      // Spans the full chat column (escaping the normal
+                      // bubble's `max-w-[85%]` constraint) so long prompts
+                      // get a proper editor. Save resets the generation
+                      // state and resends; the progress sidebar comes up
+                      // fresh.
+                      <div className="w-full rounded-xl border-2 border-primary/60 bg-primary/[0.04] px-4 py-3">
+                        <textarea
+                          autoFocus
+                          value={editDraft}
+                          onChange={(e) => {
+                            setEditDraft(e.target.value);
+                            const t = e.currentTarget;
+                            t.style.height = "auto";
+                            t.style.height = Math.min(t.scrollHeight, 480) + "px";
+                          }}
+                          ref={(el) => {
+                            // Initial autogrow on mount.
+                            if (el) {
+                              el.style.height = "auto";
+                              el.style.height = Math.min(el.scrollHeight, 480) + "px";
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setEditingMessageId(null);
+                              setEditDraft("");
+                            } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                              e.preventDefault();
+                              (document.querySelector('[data-edit-save]') as HTMLButtonElement | null)?.click();
+                            }
+                          }}
+                          rows={6}
+                          className="w-full bg-transparent text-sm leading-relaxed outline-none resize-none border-0 p-0 focus:ring-0 min-h-[120px]"
+                          placeholder="Edit your message…"
+                        />
+                        <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-primary/15">
+                          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 min-w-0">
+                            <span className="inline-block w-1 h-1 rounded-full bg-primary shrink-0" />
+                            <span className="truncate">
+                              Saving will resend this prompt and regenerate the deck from scratch.
+                            </span>
+                          </p>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingMessageId(null);
+                                setEditDraft("");
+                              }}
+                              className="text-xs px-3 py-1.5 rounded-md border border-border bg-card hover:bg-muted/40 text-foreground transition-colors"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              data-edit-save
+                              disabled={!editDraft.trim() || editDraft.trim() === msg.content}
+                              onClick={() => {
+                                const next = editDraft.trim();
+                                if (!next || next === msg.content) {
+                                  setEditingMessageId(null);
+                                  setEditDraft("");
+                                  return;
+                                }
+                                // 1) Rewrite the bubble so the chat shows the
+                                //    edited prompt.
+                                useChatStore.getState().setMessageContent(id, msg.id, next);
+                                setEditingMessageId(null);
+                                setEditDraft("");
+
+                                // 2) Wipe the prior generation slot so the
+                                //    progress sidebar starts from scratch
+                                //    (clears the "Presentation ready" CTA,
+                                //    resets the phase indicator, opens the
+                                //    plan panel for the new job).
+                                useGenerationStore.getState().reset(id);
+                                setActivePanel("plan");
+
+                                // 3) Resend. handleSendPrompt routes to
+                                //    edit-agent or fresh-generate based on
+                                //    whether a deck still exists.
+                                setPrompt(next);
+                                if (textareaRef.current) {
+                                  textareaRef.current.value = next;
+                                  textareaRef.current.style.height = "auto";
+                                }
+                                setTimeout(() => {
+                                  const fakeEvt = { preventDefault: () => {} } as React.FormEvent;
+                                  handleSendPrompt(fakeEvt);
+                                }, 50);
+                              }}
+                              className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5"
+                            >
+                              <Send className="h-3 w-3" />
+                              Save &amp; resend
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="group/msg flex flex-col items-end max-w-[85%] min-w-0">
+                        <>
+                          {(() => {
+                            // Auto-collapse long prompts so they don't dominate
+                            // the chat column when a preview/editor is open
+                            // alongside. Threshold ~400 chars (≈6 lines).
+                            const LONG_THRESHOLD = 400;
+                            const isLong = msg.content.length > LONG_THRESHOLD;
+                            const isExpanded = expandedMessages.has(msg.id);
+                            const showCollapsed = isLong && !isExpanded;
+                            return (
+                              <div className="bg-primary/10 border border-primary/15 rounded-2xl rounded-tr-sm px-4 py-3 w-full">
+                                <div className={showCollapsed ? "relative max-h-[10rem] overflow-hidden" : ""}>
+                                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                                    {msg.content}
+                                  </p>
+                                  {showCollapsed && (
+                                    <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-primary/10 to-transparent pointer-events-none" />
+                                  )}
+                                </div>
+                                {isLong && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedMessages((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(msg.id)) next.delete(msg.id);
+                                        else next.add(msg.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="mt-2 text-[11px] text-primary hover:underline font-medium"
+                                  >
+                                    {isExpanded ? "Show less" : `Show more · ${msg.content.length.toLocaleString()} chars`}
+                                  </button>
+                                )}
+                                {msg.metadata && (
+                                  <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground">
+                                    {msg.metadata.audienceType && <span>{msg.metadata.audienceType} audience</span>}
+                                    {msg.metadata.numSlides && (
+                                      <>
+                                        <span className="text-muted-foreground/30">|</span>
+                                        <span>{msg.metadata.numSlides} slides</span>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {/* Hover toolbar — Edit (inline) + Copy. */}
+                          <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingMessageId(msg.id);
+                                setEditDraft(msg.content);
+                              }}
+                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                              title="Edit message"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(msg.content);
+                                  toast.success("Copied");
+                                } catch {
+                                  toast.error("Couldn't copy");
+                                }
+                              }}
+                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                              title="Copy"
+                            >
+                              <CopyIcon className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </>
+                      </div>
+                    )
                   ) : msg.role === "system" ? (
-                    <div className="rounded-lg border border-border/50 bg-muted/30 px-3.5 py-2.5">
-                      <p className="text-xs text-muted-foreground">{msg.content}</p>
-                    </div>
+                    msg.metadata?.phase === "failed" ? (
+                      // Structured failure card — actionable buttons based on
+                      // the classifier code (Switch model / Add credits / Retry).
+                      <JobErrorCard
+                        details={msg.metadata?.errorDetails ?? null}
+                        rawMessage={msg.metadata?.error ?? msg.content}
+                        onSwitchModel={() => setActivePanel("model")}
+                        onRetry={() => {
+                          // Re-run generation with the current settings.
+                          if (selectedModelId && submittedPrompt) {
+                            generateMutation.mutate();
+                          } else {
+                            setActivePanel("model");
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="rounded-lg border border-border/50 bg-muted/30 px-3.5 py-2.5">
+                        <p className="text-xs text-muted-foreground">{msg.content}</p>
+                      </div>
+                    )
                   ) : (
-                    <div className="space-y-1">
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
+                    <div className="group/msg space-y-1">
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                      <div className="opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(msg.content);
+                              toast.success("Copied");
+                            } catch {
+                              toast.error("Couldn't copy");
+                            }
+                          }}
+                          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors inline-flex items-center gap-1 text-[11px]"
+                          title="Copy"
+                        >
+                          <CopyIcon className="h-3 w-3" />
+                        </button>
+                      </div>
                       {msg.metadata?.phase === "complete"
                         && idx === latestCompleteMessageIdx
                         && !isAnyJobActive && (
@@ -964,7 +1363,26 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     <div className="space-y-2.5">
                       <div className="flex items-center gap-2 text-sm">
                         <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
-                        <span>{PHASE_LABELS[phase] || phase}</span>
+                        <span className="flex-1">{PHASE_LABELS[phase] || phase}</span>
+                        {/* Stop button — only when a job is actively running. */}
+                        {jobId && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" });
+                                toast.success("Generation cancelled");
+                              } catch (e) {
+                                toast.error("Couldn't cancel — " + (e as Error).message);
+                              }
+                            }}
+                            className="text-[11px] px-2 py-1 rounded-md border border-border bg-card hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                            title="Stop this generation"
+                          >
+                            <Square className="h-3 w-3" />
+                            Stop
+                          </button>
+                        )}
                       </div>
                       <Progress value={progress * 100} />
                       {message && <p className="text-xs text-muted-foreground">{message}</p>}
@@ -1005,50 +1423,15 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     </div>
                   )}
 
-                  {/* Complete */}
-                  {phase === "complete" && (
-                    <div className="space-y-4">
-                      <div className="flex items-start gap-3">
-                        <LottieAnimation
-                          src="/animations/success-check.json"
-                          className="w-12 h-12 -mt-1 shrink-0"
-                          loop={false}
-                        />
-                        <p className="text-sm font-medium pt-2">Your presentation is ready!</p>
-                      </div>
-                      <div className="flex gap-3 overflow-x-auto pb-2 -mx-2 px-2">
-                        {Array.from({ length: Math.min(numSlides, 8) }).map((_, i) => (
-                          <div key={i} className="shrink-0 w-56 aspect-[16/9] rounded-lg border border-border bg-muted/50 flex items-center justify-center text-xs text-muted-foreground">
-                            Slide {i + 1}
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        <Button size="sm" onClick={async () => {
-                          try {
-                            const jobData = await api.getJob(jobId!) as { output?: { presentationId?: string } };
-                            const presId = jobData?.output?.presentationId;
-                            if (!presId) { toast.error("Not found yet"); return; }
-                            const res = await fetch(`/api/presentations/${presId}/download`);
-                            if (!res.ok) throw new Error("Download failed");
-                            const { downloadUrl, fileName } = await res.json();
-                            const a = document.createElement("a");
-                            a.href = downloadUrl;
-                            a.download = fileName || "presentation.pptx";
-                            a.click();
-                          } catch (err) { toast.error((err as Error).message); }
-                        }}>
-                          <Download className="mr-1.5 h-3.5 w-3.5" /> Download PPTX
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => toast.info("Connect Microsoft account")}>
-                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> PowerPoint
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => toast.info("Connect Canva account")}>
-                          <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Canva
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                  {/*
+                    The per-deck completion card now lives inside the chat
+                    message list (the `Presentation generated successfully!`
+                    bubble with its Download / Preview / Edit actions). We
+                    intentionally do NOT render a second "Your presentation
+                    is ready!" panel here — it duplicated info, took two
+                    scroll-screens of vertical space, and broke the
+                    chat-conversation flow. See the chat render block above.
+                  */}
                 </motion.div>
               )}
 
@@ -1587,7 +1970,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                               {eng.key === "preso-pro" && "Marketing-grade decks. Locked palettes, shape kit, native editable PPTX."}
                               {eng.key === "node-worker" && "AI-powered slide generation with visual design"}
                               {eng.key === "claude-code" && "Advanced AI code generation engine"}
-                              {eng.key === "claude-gemini" && "Gemini-powered design engine"}
+                              {eng.key === "preso-plus" && "Claude Code routed through an open-source Anthropic→Gemini proxy. No Anthropic key required."}
                             </p>
                           </button>
                         ))}

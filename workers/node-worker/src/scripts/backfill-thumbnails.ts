@@ -34,9 +34,16 @@ async function main() {
     orderBy: { createdAt: "desc" },
   });
 
+  // Backfill presentations where thumbnails are missing OR don't match the
+  // slide count — i.e. the old single-PNG bug we just fixed in
+  // thumbnail-generator.ts. The PDF→pdftoppm path produces one PNG per slide,
+  // so a deck with 5 slides should have 5 thumbs, not 1.
   const needs = all.filter((p) => {
     const t = p.thumbnails as unknown;
-    return !Array.isArray(t) || t.length === 0;
+    if (!Array.isArray(t)) return true;
+    if (t.length === 0) return true;
+    if (p.slideCount && t.length < p.slideCount) return true;
+    return false;
   });
 
   logger.info({ total: all.length, needsBackfill: needs.length }, "Starting backfill");

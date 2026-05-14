@@ -27,6 +27,10 @@ interface GenerateOptions {
   researchSummary: string;
   styleGuide: string;
   knowledgeGraphContext: string;
+  // Per-project memory brief assembled by python-agent's ProjectMemoryService.
+  // Prior outlines, decisions, entities, rolling narrative — prepended to the
+  // Claude Code system prompt so the agent stays consistent across turns.
+  projectMemoryContext?: string;
   outputPath: string;
   useGemini?: boolean;
 }
@@ -43,6 +47,7 @@ export async function generatePptx(options: GenerateOptions): Promise<string> {
     researchSummary,
     styleGuide,
     knowledgeGraphContext,
+    projectMemoryContext = "",
     outputPath,
   } = options;
 
@@ -65,6 +70,7 @@ export async function generatePptx(options: GenerateOptions): Promise<string> {
     skillGuide: "", // Skip the full skill guide — essentials are in the prompt
     styleGuide: styleGuide.substring(0, 2000),
     knowledgeGraphContext: knowledgeGraphContext.substring(0, 1000),
+    projectMemoryContext: projectMemoryContext.substring(0, 2000),
   });
   fs.writeFileSync(path.join(workDir, "CLAUDE.md"), claudeMd);
 
@@ -78,6 +84,7 @@ export async function generatePptx(options: GenerateOptions): Promise<string> {
     outFile,
     styleGuide,
     knowledgeGraphContext,
+    projectMemoryContext,
   });
 
   console.log(`[pptx-agent] Workspace: ${workDir}`);
@@ -111,6 +118,7 @@ function buildClaudeMd(ctx: {
   skillGuide: string;
   styleGuide: string;
   knowledgeGraphContext: string;
+  projectMemoryContext?: string;
 }): string {
   return `# SlideForge PPTX Generator
 
@@ -146,6 +154,8 @@ ${ctx.pptxgenGuide}
 ${ctx.styleGuide ? `## Style Profile from Reference Deck\n${ctx.styleGuide}` : ""}
 
 ${ctx.knowledgeGraphContext ? `## User's Design Preferences\n${ctx.knowledgeGraphContext}` : ""}
+
+${ctx.projectMemoryContext ? `## Project Memory (READ FIRST)\n${ctx.projectMemoryContext}\n\nStay consistent with the project history above: same audience, same voice, do not repeat material already covered, honor decisions already made.` : ""}
 `;
 }
 
@@ -158,6 +168,7 @@ function buildAgentPrompt(ctx: {
   outFile: string;
   styleGuide: string;
   knowledgeGraphContext: string;
+  projectMemoryContext?: string;
 }): string {
   const outlineText = ctx.outline
     .map((s, i) => `Slide ${i + 1}: "${s.title}" (${s.layout})\n  Points: ${s.key_points.join("; ")}`)
@@ -169,6 +180,10 @@ function buildAgentPrompt(ctx: {
 
   const kgSection = ctx.knowledgeGraphContext
     ? `\n## User's Design Preferences (from knowledge graph)\n${ctx.knowledgeGraphContext.substring(0, 1000)}\n`
+    : "";
+
+  const memorySection = ctx.projectMemoryContext
+    ? `\n## Project Memory (read before designing — stay consistent with this)\n${ctx.projectMemoryContext.substring(0, 2500)}\n`
     : "";
 
   return `Create a CATALOGUE-QUALITY PowerPoint presentation using pptxgenjs. Read the CLAUDE.md for the full pptxgenjs API reference and design guidelines, then write generate.js and run it.
@@ -184,7 +199,7 @@ ${outlineText}
 
 ## Research Context
 ${ctx.researchSummary.substring(0, 2000)}
-${styleSection}${kgSection}
+${styleSection}${kgSection}${memorySection}
 ## Requirements
 1. Read CLAUDE.md first — it has the pptxgenjs API, layout rules, and visual QA process
 2. Write generate.js using pptxgenjs (require from node_modules)

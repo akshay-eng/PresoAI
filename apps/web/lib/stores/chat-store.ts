@@ -26,6 +26,17 @@ export interface ChatMessage {
     mode?: "edit" | "generate";
     intent?: "generate" | "edit" | "clarify" | "decline" | "greeting";
     guardrail?: boolean;
+    // Structured error from python-agent's classifier — billing/auth/rate
+    // limit/etc. Lets the chat render an actionable card instead of dumping
+    // a raw stack trace.
+    errorDetails?: {
+      code?: string;
+      title?: string;
+      message?: string;
+      hint?: string;
+      provider?: string | null;
+      retryable?: boolean;
+    };
   };
 }
 
@@ -38,6 +49,10 @@ interface ChatStore {
   chats: Record<string, ProjectChat>;
   addMessage: (projectId: string, message: Omit<ChatMessage, "id" | "timestamp">) => string;
   updateLastAssistantMessage: (projectId: string, updates: Partial<ChatMessage>) => void;
+  // Inline-edit a specific message — used by the "Edit this prompt" UX in
+  // user bubbles. Updates content in place; server sync happens via the
+  // existing syncToServer pattern.
+  setMessageContent: (projectId: string, messageId: string, content: string) => void;
   getMessages: (projectId: string) => ChatMessage[];
   clearChat: (projectId: string) => void;
   loadFromServer: (projectId: string) => Promise<void>;
@@ -99,6 +114,30 @@ export const useChatStore = create<ChatStore>()(
             },
           };
         });
+      },
+
+      setMessageContent: (projectId, messageId, content) => {
+        set((state) => {
+          const existing = state.chats[projectId];
+          if (!existing) return state;
+          const messages = existing.messages.map((m) =>
+            m.id === messageId ? { ...m, content } : m,
+          );
+          return {
+            chats: {
+              ...state.chats,
+              [projectId]: { ...existing, messages },
+            },
+          };
+        });
+        // Mirror to server (best-effort). The PATCH endpoint will accept the
+        // new content if present; chat-message route already supports POST
+        // for new messages, PATCH for in-place edits.
+        fetch(`/api/projects/${projectId}/chat/${messageId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+        }).catch(() => { /* silent — local state is preserved */ });
       },
 
       getMessages: (projectId) => {

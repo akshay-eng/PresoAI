@@ -24,7 +24,7 @@ export const generatePresentationSchema = z.object({
   numSlides: z.number().int().min(1).max(15),
   audienceType: z.enum(["executive", "technical", "general", "marketing"]),
   modelId: z.string().min(1),
-  engine: z.enum(["claude-code", "claude-gemini", "node-worker", "preso-pro"]).default("claude-code"),
+  engine: z.enum(["claude-code", "preso-plus", "node-worker", "preso-pro"]).default("claude-code"),
   creativeMode: z.boolean().default(false),
   useDiagramImages: z.boolean().default(false),
   chatImageKeys: z.array(z.string()).optional(),
