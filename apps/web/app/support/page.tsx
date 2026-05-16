@@ -40,6 +40,7 @@ const AREA_OPTIONS = [
 
 interface Ticket {
   id: string;
+  ticketNumber: string;
   category: string;
   severity: string;
   area: string;
@@ -90,8 +91,12 @@ export default function SupportPage() {
       }
       return r.json();
     },
-    onSuccess: () => {
-      toast.success("Thanks — we got it.");
+    onSuccess: (data: { ticketNumber?: string }) => {
+      toast.success(
+        data?.ticketNumber
+          ? `Thanks — filed as ${data.ticketNumber}.`
+          : "Thanks — we got it."
+      );
       setCategory("");
       setSeverity("medium");
       setArea("");
@@ -223,6 +228,9 @@ export default function SupportPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-[10px] font-semibold text-foreground bg-secondary/60 rounded px-1.5 py-0.5">
+                            {t.ticketNumber}
+                          </span>
                           <StatusBadge status={t.status} />
                           <SeverityBadge severity={t.severity} />
                           <span className="text-[10px] uppercase tracking-wide text-muted-foreground">

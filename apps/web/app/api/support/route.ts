@@ -38,16 +38,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ITSM-style ticket number: SUP-NNNNNN. Pulled from a Postgres sequence
+    // so concurrent submissions don't collide.
+    const seq = await prisma.$queryRaw<Array<{ nextval: bigint }>>`
+      SELECT nextval('support_ticket_seq') AS nextval
+    `;
+    const num = Number(seq[0]?.nextval ?? 0);
+    const ticketNumber = `SUP-${String(num).padStart(6, "0")}`;
+
     const ticket = await prisma.supportTicket.create({
       data: {
         userId: session.user.id,
+        ticketNumber,
         ...parsed.data,
       },
-      select: { id: true, createdAt: true },
+      select: { id: true, ticketNumber: true, createdAt: true },
     });
 
     logger.info(
-      { ticketId: ticket.id, userId: session.user.id, category: parsed.data.category, severity: parsed.data.severity },
+      { ticketId: ticket.id, ticketNumber, userId: session.user.id, category: parsed.data.category, severity: parsed.data.severity },
       "Support ticket filed"
     );
 

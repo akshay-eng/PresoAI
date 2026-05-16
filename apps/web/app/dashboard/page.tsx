@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, FileText, Trash2, Clock, Send, Presentation, X,
   BarChart3, Users, Lightbulb, Upload, Palette, Brain, Settings2, Loader2, Sparkles,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,8 +40,16 @@ export default function DashboardPage() {
   const [engine, setEngine] = useState<"claude-code" | "preso-plus" | "node-worker" | "preso-pro">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
   const [useDiagramImages, setUseDiagramImages] = useState(false);
+  // Images toggle defaults OFF — explicit opt-in so the dashboard
+  // doesn't sneak Gemini API spend on every quick prompt.
+  const [useImageGen, setUseImageGen] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const [showCreateStyle, setShowCreateStyle] = useState(false);
+  // Catalog metadata for new user-created styles. `category` drives the
+  // filter chips on /catalog; `isPublic` flips the profile so it shows up
+  // on every other user's catalog.
+  const [newStyleCategory, setNewStyleCategory] = useState<string>("");
+  const [newStylePublic, setNewStylePublic] = useState(false);
   const [showStyleDetail, setShowStyleDetail] = useState<string | null>(null);
   const [newStyleName, setNewStyleName] = useState("");
   const [styleFiles, setStyleFiles] = useState<File[]>([]);
@@ -160,6 +169,9 @@ export default function DashboardPage() {
         audienceType,
         ...(creativeMode ? { creativeMode: "1" } : {}),
         ...(useDiagramImages ? { useDiagramImages: "1" } : {}),
+        // Pass useImageGen explicitly (both states), so the project page
+        // doesn't get the default-on if the dashboard toggle is OFF.
+        useImageGen: useImageGen ? "1" : "0",
       });
 
       // Capture the attachments BEFORE clearing form state so the background
@@ -715,6 +727,19 @@ export default function DashboardPage() {
                     <BarChart3 className="h-2.5 w-2.5" />
                     Diagrams
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setUseImageGen(!useImageGen)}
+                    className={`text-[10px] rounded-md px-1.5 py-0.5 transition-colors flex items-center gap-0.5 ${
+                      useImageGen
+                        ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/30"
+                        : "bg-secondary text-muted-foreground hover:text-foreground"
+                    }`}
+                    title="AI Images: generates photo-realistic backgrounds for the cover and section dividers via Gemini Nano Banana"
+                  >
+                    <ImageIcon className="h-2.5 w-2.5" />
+                    Images
+                  </button>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -960,6 +985,45 @@ export default function DashboardPage() {
                     className="text-xs h-8"
                   />
 
+                  <div>
+                    <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
+                      Category <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={newStyleCategory}
+                      onChange={(e) => setNewStyleCategory(e.target.value)}
+                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs h-8 outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
+                    >
+                      <option value="">Pick a category</option>
+                      <option value="it">IT &amp; Software</option>
+                      <option value="bfsi">BFSI (Banking / Finance / Insurance)</option>
+                      <option value="consulting">Consulting</option>
+                      <option value="education">Educational institution</option>
+                      <option value="healthcare">Healthcare / Pharma</option>
+                      <option value="retail">Retail / e-Commerce</option>
+                      <option value="manufacturing">Manufacturing</option>
+                      <option value="media">Media / Marketing</option>
+                      <option value="nonprofit">Non-profit / Public sector</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  <label className="flex items-start gap-2 text-xs cursor-pointer select-none rounded-md border border-border bg-card px-3 py-2 hover:bg-muted/20 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={newStylePublic}
+                      onChange={(e) => setNewStylePublic(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 accent-primary shrink-0"
+                    />
+                    <span className="min-w-0">
+                      <span className="font-medium">Share publicly</span>
+                      <span className="text-muted-foreground block text-[11px] leading-snug mt-0.5">
+                        Lists this style on the Catalog so any user can preview + clone it.
+                        Your account stays the owner.
+                      </span>
+                    </span>
+                  </label>
+
                   <div
                     className="border-2 border-dashed border-border/60 rounded-xl p-6 text-center cursor-pointer hover:border-border hover:bg-muted/10 transition-colors"
                     onClick={() => document.getElementById("style-file-input")?.click()}
@@ -996,7 +1060,7 @@ export default function DashboardPage() {
                   <Button
                     size="sm"
                     className="w-full h-8 text-xs"
-                    disabled={!newStyleName.trim() || styleFiles.length === 0 || creatingStyle}
+                    disabled={!newStyleName.trim() || !newStyleCategory || styleFiles.length === 0 || creatingStyle}
                     onClick={async () => {
                       setCreatingStyle(true);
                       try {
@@ -1004,7 +1068,11 @@ export default function DashboardPage() {
                         const createRes = await fetch("/api/style-profiles", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ name: newStyleName }),
+                          body: JSON.stringify({
+                            name: newStyleName,
+                            category: newStyleCategory,
+                            isPublic: newStylePublic,
+                          }),
                         });
                         if (!createRes.ok) throw new Error("Failed to create profile");
                         const { id: profileId } = await createRes.json();
@@ -1043,6 +1111,8 @@ export default function DashboardPage() {
                         toast.success("Style profile created! Analyzing...");
                         setShowCreateStyle(false);
                         setNewStyleName("");
+                        setNewStyleCategory("");
+                        setNewStylePublic(false);
                         setStyleFiles([]);
                         queryClient.invalidateQueries({ queryKey: ["style-profiles"] });
                       } catch (err) {

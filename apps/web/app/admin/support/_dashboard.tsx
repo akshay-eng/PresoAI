@@ -17,6 +17,7 @@ type Status = (typeof STATUS_LIST)[number];
 
 interface Ticket {
   id: string;
+  ticketNumber: string;
   category: string;
   severity: string;
   area: string;
@@ -175,6 +176,9 @@ export function AdminSupportDashboard() {
                   {/* Top row: meta */}
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="font-mono text-[11px] font-semibold text-foreground bg-secondary/60 rounded px-2 py-0.5">
+                        {t.ticketNumber}
+                      </span>
                       <StatusBadge status={t.status} />
                       <SeverityBadge severity={t.severity} />
                       <span className="text-[11px] uppercase tracking-wide text-muted-foreground">

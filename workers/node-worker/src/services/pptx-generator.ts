@@ -207,7 +207,8 @@ export async function processNodeWorkerJob(
   await publishProgress(jobId, {
     phase: "building_pptx",
     progress: 0.9,
-    message: "Building PowerPoint file...",
+    message: `Rendering ${slides.length} slides...`,
+    data: { currentSlideIndex: 0, totalSlides: slides.length },
   });
 
   const pres = new PptxGenJS();
@@ -224,6 +225,22 @@ export async function processNodeWorkerJob(
 
     for (let i = 0; i < slides.length; i++) {
       executeSlideCode(pres, slides[i] as unknown as SlideCode, i);
+
+      // Per-slide progress tick. The sidebar uses `currentSlideIndex` to
+      // mark slides 1..i as done and only animate slide i+1. We progress
+      // linearly from 0.90 → 0.92 across the slide loop so the global
+      // bar nudges forward too.
+      const fraction = (i + 1) / slides.length;
+      await publishProgress(jobId, {
+        phase: "building_pptx",
+        progress: 0.9 + 0.02 * fraction,
+        message: `Rendered slide ${i + 1} of ${slides.length}`,
+        data: {
+          currentSlideIndex: i + 1,
+          totalSlides: slides.length,
+          completedSlideIndex: i,
+        },
+      });
     }
   } else {
     // Legacy fallback: old SlideSpec approach

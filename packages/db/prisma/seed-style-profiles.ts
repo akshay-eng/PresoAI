@@ -351,47 +351,322 @@ DO NOT: use IBM-style ultra-minimal layouts (we want more visual richness), heav
   ],
 };
 
-const PROFILES = [IBM_PROFILE, ICICI_PROFILE, WIPRO_PROFILE];
+// BITS Pilani — Education sector. Based on the Birla Institute Keynote
+// template (clock-tower photo cover, innovate/achieve/lead 3-color accent
+// strip, deep cobalt + warm gold/red/blue accents, serif body, bold
+// sans-serif titles).
+const BITS_PILANI_PROFILE = {
+  name: "BITS Pilani Institutional",
+  description: "Birla Institute of Technology and Science academic deck — cobalt cover, 3-color innovate/achieve/lead accent rule, serif body, photo-led storytelling.",
+  category: "education",
+  themeConfig: {
+    colors: {
+      primary: "#1A3A6B",            // BITS deep cobalt
+      secondary: "#0F2A4D",           // darker navy for headers
+      accent1: "#F4B400",             // "innovate" gold
+      accent2: "#5BC0EB",             // "achieve" sky blue
+      accent3: "#E74C3C",             // "lead" red
+      accent4: "#FFFFFF",
+      background: "#FFFFFF",
+      surface: "#F5F8FB",            // very pale blue for content cards
+      text_primary: "#000000",
+      text_muted: "#4A5568",
+    },
+    heading_font: "Helvetica Neue",
+    body_font: "Times New Roman",
+    mono_font: "Menlo",
+  },
+  visualStyle: {
+    design_language:
+      "Academic-institutional. Photo-anchored covers (the iconic BITS clock tower against blue sky). Body slides are clean white with the 3-color accent rule top + bottom. Serif body text gives the deck a traditional, considered tone — never modern startup feel.",
+    typography_treatment:
+      "Slide titles in bold Helvetica Neue (or system sans), 32–40pt, left-aligned, black. Body text in Times New Roman (or Cambria), 18–22pt, regular weight. Italic for subtitles ('Pilani Campus'). Bold for emphasis inline. Never reverse-out white text on white slides.",
+    decoratives:
+      "Cover slides use a full-bleed photo (clock tower, campus, students) with the BITS Pilani wordmark + circular crest top-right. Body slides use a horizontal accent rule (gold → sky blue → red, equal thirds) BOTH at top under the title AND at the bottom above the footer. A faint repeating watermark — 'Learning, Integrated Programmes, Work' — sits behind body text on instructional slides only.",
+    color_discipline:
+      "Cobalt blue dominates the cover. Body slides are mostly white with the 3-color stripe as the ONLY decorative color. NEVER mix colors into the body text — keep everything black serif. The gold/blue/red rule is the brand signature; do not omit it.",
+    info_density: "medium",
+  },
+  styleGuide: `BITS Pilani academic style. The signature is a balance of institutional gravitas and warmth — serif body text says "this is education, take it seriously," while the gold/blue/red accent rule (innovate / achieve / lead) keeps it from feeling cold.
+
+TYPOGRAPHY: Bold Helvetica Neue (or system sans) for slide titles (32–40pt, left-aligned, BLACK on white). Times New Roman / Cambria for ALL body text (18–22pt regular). Italics for subtitles like "Pilani Campus" or unit names. Never set body text in sans-serif — the serif is non-negotiable for the academic feel.
+
+LAYOUT: Cover slide is photo-led — a tower / campus image fills the slide with a horizontal blue band (left ~40%, full height) carrying the BITS Pilani crest + wordmark + "Faculty Name / Faculty Department" footer. Body slides have the title top-left in bold black sans-serif, a horizontal 3-color accent rule (gold-blue-red equal thirds) BELOW the title, then content. Same rule appears at the bottom above the footer ("BITS Pilani, Pilani Campus").
+
+COLOR: Cobalt blue (#1A3A6B) is the primary — used for cover backgrounds and accent fills. The 3-color accent rule (gold #F4B400 / sky #5BC0EB / red #E74C3C) is the ONLY decorative color on body slides. Body content is BLACK serif on WHITE — no colored body text. Avoid gradients, glow effects, or competing accent palettes.
+
+DECORATION: The accent rule top + bottom is the brand signature. Add the BITS wordmark + crest bottom-right on cover slides. On instructional / content-heavy slides, a faint diagonal watermark ("Learning · Integrated Programmes · Work") sits behind the body text in light gray.
+
+CONTENT: Information-dense academic. Multi-line lists, topical agendas, architecture diagrams, references. Avoid bullet-list-only slides; prefer diagram + caption + cited source. Photos of campus/people are welcome on cover and section dividers. Code blocks and equations are OK in Menlo / Cambria Math.`,
+  layoutPatterns: [
+    {
+      type: "photo_cover_with_blue_band",
+      frequency: 0.15,
+      description: "Full-bleed campus / tower photo with a solid cobalt band on the left ~40% width, full height. Band carries the BITS Pilani crest + wordmark + presentation title + faculty footer.",
+      content_density: "low",
+    },
+    {
+      type: "title_with_tricolor_rule",
+      frequency: 0.50,
+      description: "White background. Bold black sans-serif title top-left. Below the title: horizontal 3-color rule (gold / sky blue / red, equal thirds). Body content (serif) below. Bottom of slide repeats the 3-color rule above the BITS footer.",
+      content_density: "medium",
+    },
+    {
+      type: "agenda_or_topic_list",
+      frequency: 0.15,
+      description: "Title 'Topics' or 'Agenda' top-left. Right-aligned numbered list in Times serif, 18–22pt, with generous line-height. Faint diagonal 'Learning, Integrated Programmes, Work' watermark behind the list.",
+      content_density: "medium",
+    },
+    {
+      type: "section_divider",
+      frequency: 0.10,
+      description: "Cobalt background with the section name in large white Helvetica bold (48pt+). Optional small crest top-right.",
+      content_density: "low",
+    },
+    {
+      type: "diagram_or_architecture",
+      frequency: 0.10,
+      description: "White background. Title + tricolor rule on top. Center area holds a labeled diagram (boxes + arrows in cobalt blue) with serif callout text. Footer tricolor rule + BITS wordmark.",
+      content_density: "high",
+    },
+  ],
+};
+
+// HDFC Bank — BFSI/banking corporate. Deep blue + red brand accent, dense
+// numerical content, compliance footers.
+const HDFC_BANK_PROFILE = {
+  name: "HDFC Bank Corporate",
+  description: "Indian banking-corporate template — deep navy + signature red, dense tables and KPI grids, regulatory footers, conservative typography.",
+  category: "bfsi",
+  themeConfig: {
+    colors: {
+      primary: "#004C8F",            // HDFC deep navy
+      secondary: "#ED232A",          // HDFC red
+      accent1: "#F7C600",            // gold accent (rare)
+      accent2: "#003366",            // navy headers
+      accent3: "#666666",            // body grey
+      accent4: "#FFFFFF",
+      background: "#FFFFFF",
+      surface: "#F4F6F9",
+      text_primary: "#111111",
+      text_muted: "#5A6B7C",
+    },
+    heading_font: "Arial",
+    body_font: "Arial",
+    mono_font: "Consolas",
+  },
+  visualStyle: {
+    design_language:
+      "Conservative banking. White slides with a deep-navy top band carrying the slide title in white. Red is used SPARINGLY — only for KPI highlights, callouts, or the HDFC logo. Tables, tables, tables.",
+    typography_treatment:
+      "Arial throughout. Titles 22–26pt navy or white-on-navy. Body 12–14pt grey. Tables use 10–11pt with bold navy header rows.",
+    decoratives:
+      "Top navy band (~50px) holds the slide title in white. Bottom slim navy band carries the date + 'Internal Use Only' or 'Confidential' footer + slide number. The HDFC logo sits bottom-right on every slide.",
+    color_discipline:
+      "Navy is the brand. Red is for emphasis ONLY (positive growth KPIs, callouts). Grey body text. White slide background.",
+    info_density: "very high",
+  },
+  styleGuide: `HDFC Bank corporate style. The signature is information density + restraint — a typical body slide shows a dense table or a chart with annotations, NEVER big visuals or splashy graphics. The visual identity is the navy band header + the disciplined typography, not decoration.
+
+TYPOGRAPHY: Arial throughout (system fallback Helvetica). Slide titles 22–26pt navy (#004C8F) or white-on-navy if on the top band. Section headings 16–18pt navy bold. Body 12–14pt #111 or #5A6B7C for secondary. Table headers 11pt white-on-navy bold; table cells 10–11pt #111 with #F4F6F9 zebra striping.
+
+LAYOUT: Top navy band (slim ~50px) carrying the slide title in white left-aligned. Body fills the rest of the slide with tables, charts, or numbered lists. Bottom navy band (thinner, ~20px) with the date, footer text ("Internal Use Only" / "Confidential"), and slide number. HDFC logo bottom-right above the bottom band, always visible.
+
+COLOR: Navy (#004C8F) is the brand — top/bottom bands, table headers, section bars. Red (#ED232A) is ONLY for: HDFC logo, positive KPI deltas ("+12% YoY"), or compliance call-outs ("Mandatory"). Body grey (#5A6B7C). Avoid gradients, drop shadows, transparency effects.
+
+CONTENT: Banking + financial — tables of fees, AUM, branches, customer counts; charts with quarterly trends; regulatory disclosures. Bullet lists should always have monetary or percentage values. Photos are RARE — only for executive headshots or branch photos. No stock imagery.`,
+  layoutPatterns: [
+    {
+      type: "navy_band_title_with_table",
+      frequency: 0.45,
+      description: "Top navy band with white title. Body is a 4-6 column data table with navy header row, zebra striping, and a callout column (red text or icon) for the headline metric.",
+      content_density: "very high",
+    },
+    {
+      type: "navy_band_title_with_chart",
+      frequency: 0.25,
+      description: "Top navy band + slide title. Center: bar/line chart in navy + grey, with red used ONLY for the YoY growth annotation. Right rail: 3-4 KPI cards with navy header strips.",
+      content_density: "high",
+    },
+    {
+      type: "compliance_or_regulatory",
+      frequency: 0.15,
+      description: "Title + dense paragraph text in 12pt grey with monetary/percentage values bolded. Side rail with citation numbers / source labels.",
+      content_density: "very high",
+    },
+    {
+      type: "section_divider_navy",
+      frequency: 0.05,
+      description: "Full-bleed navy slide with section name in large white Arial bold (40pt+). HDFC logo top-right.",
+      content_density: "low",
+    },
+    {
+      type: "executive_summary_kpis",
+      frequency: 0.10,
+      description: "Cover/section: 4-6 stat cards horizontally with navy top accent strip and big-number KPI in 36pt navy bold below.",
+      content_density: "medium",
+    },
+  ],
+};
+
+// Tata Consultancy Services — IT/Consulting global. Indigo + cyan accent,
+// stack-oriented diagrams, lots of icons, sustainability messaging.
+const TCS_PROFILE = {
+  name: "TCS Consulting",
+  description: "Indian IT services template — indigo + cyan, layered architecture diagrams, customer-outcome KPIs, clean modernist layouts.",
+  category: "consulting",
+  themeConfig: {
+    colors: {
+      primary: "#3B3F8F",            // TCS indigo
+      secondary: "#1FA2FF",          // bright cyan
+      accent1: "#00B894",            // sustainable green
+      accent2: "#FF7043",            // orange call-outs
+      accent3: "#6C5CE7",
+      accent4: "#FFFFFF",
+      background: "#FFFFFF",
+      surface: "#F7F9FC",
+      text_primary: "#1A1A2E",
+      text_muted: "#5A5A78",
+    },
+    heading_font: "Helvetica Neue",
+    body_font: "Helvetica Neue",
+    mono_font: "Source Code Pro",
+  },
+  visualStyle: {
+    design_language:
+      "Clean modernist IT-services. Indigo branded with cyan as the dominant accent. Layered architecture diagrams (boxes + arrows + icons) are the signature content type — every deck has at least one.",
+    typography_treatment:
+      "Helvetica Neue throughout. Titles 28–34pt indigo bold. Body 14–16pt #1A1A2E regular. Icon labels 11–12pt grey.",
+    decoratives:
+      "Top thin indigo bar (3-4px) under the slide title. TCS logo bottom-right. Section divider slides use a diagonal indigo wedge.",
+    color_discipline:
+      "Indigo for primary structure, cyan for arrows/connectors/highlights. Green for sustainability/positive outcomes. Orange for warnings or new launches only. Never mix more than 3 accent colors on one slide.",
+    info_density: "high",
+  },
+  styleGuide: `TCS consulting style. Indigo + cyan modernist with disciplined whitespace. The signature visual is a multi-layer architecture diagram (data layer → integration → AI/ML → consumption) with icons in each layer.
+
+TYPOGRAPHY: Helvetica Neue throughout. Slide titles 28–34pt indigo bold (#3B3F8F), left-aligned. Body 14–16pt #1A1A2E regular. Layer labels in architecture diagrams 13pt indigo bold. Bullet lists prefer 1-line items with icons.
+
+LAYOUT: Title top-left with a thin 3px indigo underline. Body fills the rest. Architecture-style diagrams span the full width with 4-6 horizontal layers (data → processing → AI/ML → application → consumption), each layer in light surface (#F7F9FC) with indigo header strip. Bottom-right: TCS logo. No top/bottom bands — clean breathing room.
+
+COLOR: Indigo (#3B3F8F) is the primary — title color, layer headers, structural lines. Cyan (#1FA2FF) for connectors / arrows / inline highlights. Green (#00B894) for sustainability metrics / positive KPI changes. Orange (#FF7043) ONLY for "new" or "launch" callouts. Light surface (#F7F9FC) for diagram backdrops.
+
+DECORATION: Layered architecture diagrams are the brand signature — every deck has at least one. Use rounded rectangles for components, simple line arrows for data flow (cyan, 2pt), and icons for each layer (database, API, AI, mobile, dashboard). Avoid gradients on the components; flat fills only.
+
+CONTENT: Customer outcomes + sustainability + AI/ML. KPIs framed as "X% efficiency gain" or "Y trees saved." Avoid jargon-heavy slides; prefer outcome-first headlines.`,
+  layoutPatterns: [
+    {
+      type: "layered_architecture",
+      frequency: 0.30,
+      description: "Slide-wide multi-layer diagram (4-6 horizontal layers) with light surface backdrop, indigo header strips per layer, cyan connectors between. Icons populate each layer.",
+      content_density: "high",
+    },
+    {
+      type: "outcome_kpis_grid",
+      frequency: 0.20,
+      description: "4-6 KPI cards in a grid (2x2 or 2x3) with indigo top strip, big-number KPI in 32pt indigo bold, and a green/cyan icon + delta caption.",
+      content_density: "medium",
+    },
+    {
+      type: "industry_landscape_logos",
+      frequency: 0.10,
+      description: "Title + a grid of customer/partner logos arranged by industry vertical, with indigo dividers between groups.",
+      content_density: "high",
+    },
+    {
+      type: "process_flow_horizontal",
+      frequency: 0.20,
+      description: "5-7 stage horizontal flow with rounded-rect stages connected by cyan arrows, each stage with icon + 2-line description.",
+      content_density: "medium",
+    },
+    {
+      type: "sustainability_callout",
+      frequency: 0.10,
+      description: "Green-themed slide highlighting environmental KPIs — trees saved, carbon offset, water reused. Big number + green badge + supporting text.",
+      content_density: "low",
+    },
+    {
+      type: "section_divider_diagonal",
+      frequency: 0.10,
+      description: "Section title slide with a diagonal indigo wedge from bottom-left to top-right. White text on indigo half.",
+      content_density: "low",
+    },
+  ],
+};
+
+const PROFILES = [
+  IBM_PROFILE,
+  ICICI_PROFILE,
+  WIPRO_PROFILE,
+  BITS_PILANI_PROFILE,
+  HDFC_BANK_PROFILE,
+  TCS_PROFILE,
+];
+
+// Attach a `category` to existing profiles so the catalog filter chips work
+// for the original three too. Order must match PROFILES above.
+const PROFILE_META: Record<string, string> = {
+  "IBM Enterprise": "it",
+  "ICICI Bank Corporate": "bfsi",
+  "Wipro Consulting": "consulting",
+};
 
 // Idempotent: upserts by (name, isGlobal:true). Safe to re-run on every deploy.
 // Exposed so the main seed can call this without spawning a separate process.
+// Profiles that should ALWAYS show in the per-project / dashboard style
+// selector for every user (isGlobal=true). Everything else is catalog-only
+// (isGlobal=false, isPublic=true) — users discover it on /catalog and
+// explicitly clone into their own profiles.
+const ALWAYS_DEFAULT = new Set<string>(["IBM Enterprise", "Wipro Consulting"]);
+
 export async function seedGlobalStyleProfiles(prisma: PrismaClient) {
   for (const p of PROFILES) {
+    const category = (p as { category?: string }).category || PROFILE_META[p.name] || "other";
+    const isDefault = ALWAYS_DEFAULT.has(p.name);
+    const sharedData = {
+      description: p.description,
+      themeConfig: p.themeConfig,
+      visualStyle: p.visualStyle,
+      styleGuide: p.styleGuide,
+      layoutPatterns: p.layoutPatterns,
+      status: "ready" as const,
+      category,
+      // Both true → shows in selector + catalog.
+      // Only isPublic → catalog-only (catalog clones bring it into a user's selector).
+      isGlobal: isDefault,
+      isPublic: true,
+    };
+
+    // Look up by name only — we may be flipping isGlobal from true → false
+    // on an existing row (BITS/HDFC/TCS/ICICI demotion).
     const existing = await prisma.styleProfile.findFirst({
-      where: { name: p.name, isGlobal: true },
+      where: { name: p.name, userId: null },
     });
 
     if (existing) {
       await prisma.styleProfile.update({
         where: { id: existing.id },
-        data: {
-          description: p.description,
-          themeConfig: p.themeConfig,
-          visualStyle: p.visualStyle,
-          styleGuide: p.styleGuide,
-          layoutPatterns: p.layoutPatterns,
-          status: "ready",
-        },
+        data: sharedData,
       });
-      console.log(`Updated  ${p.name}  (${existing.id})`);
+      console.log(
+        `Updated  ${p.name}  [${category}]  ` +
+        `${isDefault ? "default+catalog" : "catalog-only"}  (${existing.id})`,
+      );
     } else {
       const created = await prisma.styleProfile.create({
         data: {
           name: p.name,
-          description: p.description,
-          isGlobal: true,
           userId: null,
-          status: "ready",
-          themeConfig: p.themeConfig,
-          visualStyle: p.visualStyle,
-          styleGuide: p.styleGuide,
-          layoutPatterns: p.layoutPatterns,
+          ...sharedData,
         },
       });
-      console.log(`Created  ${p.name}  (${created.id})`);
+      console.log(
+        `Created  ${p.name}  [${category}]  ` +
+        `${isDefault ? "default+catalog" : "catalog-only"}  (${created.id})`,
+      );
     }
   }
-  console.log(`\nDone. ${PROFILES.length} default style profiles seeded.`);
+  console.log(`\nDone. ${PROFILES.length} style profiles seeded.`);
 }
 
 // Standalone runner — invoked by `pnpm db:seed:styles`.

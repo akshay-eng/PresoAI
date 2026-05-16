@@ -110,6 +110,7 @@ class PPTGenerationState(TypedDict, total=False):
     user_id: str
     creative_mode: bool                     # When True, use advanced visualizations (tables, pyramids, graphs, etc.)
     use_diagram_images: bool                # When True, render complex diagrams as images via Kroki
+    use_image_gen: bool                     # When True, emit IMAGE_GEN markers on cover + section dividers
     # Visual context from references and chat images
     chat_image_keys: list[str]              # S3 keys of images pasted in chat
     reference_visual_parts: list[dict]      # Multimodal message parts from PPTX reference collages

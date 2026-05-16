@@ -18,6 +18,7 @@ const SECTIONS: Array<{ id: string; label: string; group?: string }> = [
   { id: "audience", label: "Audience type" },
   { id: "creative-mode", label: "Creative Mode" },
   { id: "diagrams", label: "Diagrams Engine" },
+  { id: "image-gen", label: "Image generation" },
   { id: "brand-styles", label: "Brand styles" },
   { id: "references", label: "Reference decks & images" },
   { id: "editing", label: "Editing slides in chat" },
@@ -219,6 +220,63 @@ export default function DocsPage() {
             When to enable: technical decks where diagram fidelity matters
             and the audience won&apos;t edit the slides. When to disable:
             anything you might want to tweak in PowerPoint after generation.
+          </p>
+          <h3 className="text-base font-semibold mt-5">Native SmartArt fallbacks</h3>
+          <p>
+            For common diagram shapes — hub-and-spoke (mindmap),
+            chevron process flows, 2×2 matrices, hierarchies — the agent
+            now reaches for native pptxgenjs shapes <em>before</em> Kroki.
+            These render reliably, stay fully editable in PowerPoint, and
+            inherit the deck&apos;s locked palette. Kroki is reserved for
+            real charts (<code>vegalite</code>), sankey-beta flow volumes,
+            gantt timelines, and ER models — places where native shapes
+            would be a lot of work for the same result.
+          </p>
+        </section>
+
+        <section id="image-gen" className="docs-section">
+          <h2 className="text-2xl font-semibold tracking-tight">Image generation</h2>
+          <p>
+            Toggle the <span className="docs-kbd">Images</span> chip
+            (next to <span className="docs-kbd">Diagrams</span>) to let the
+            agent generate photo-realistic backgrounds for the cover and
+            section divider slides via Gemini Nano Banana. Defaults to{" "}
+            <strong>OFF</strong> — image gen is an explicit opt-in because
+            it costs an API call per slide and isn&apos;t always on-brand.
+          </p>
+          <h3 className="text-base font-semibold mt-5">How it works</h3>
+          <ol className="list-decimal pl-6 space-y-1 mt-2">
+            <li>
+              When enabled, the slide-writer is told it can emit a single
+              <code> // IMAGE_GEN: prompt=&quot;...&quot; tint=&quot;&lt;hex&gt;&quot; fade=&quot;bottom&quot; </code>
+              comment at the top of cover / section-divider slides.
+            </li>
+            <li>
+              The post-processor expands that marker into{" "}
+              <code>slide.addImage(...)</code> for the generated photo, a
+              brand-color tint overlay, and an automatic vertical fade
+              behind the title so the text reads cleanly. All text and
+              shapes you draw on top stay editable in PowerPoint.
+            </li>
+            <li>
+              When disabled, the agent is explicitly told <em>not</em> to
+              emit IMAGE_GEN markers; any stray markers are stripped
+              before the deck ships. No Gemini calls, no charges.
+            </li>
+          </ol>
+          <h3 className="text-base font-semibold mt-5">Brand logos</h3>
+          <p>
+            Brand names mentioned in the prompt (ServiceNow, Slack,
+            Kubernetes, etc.) trigger a logo.dev lookup. Logos are
+            scoped to integration / tech-stack / architecture slides
+            only — never used as a watermark, never repeated across
+            slides, and the deck&apos;s own product name is filtered out
+            so a placeholder logo doesn&apos;t show up on the cover.
+          </p>
+          <p className="text-sm text-muted-foreground italic mt-2">
+            When to enable: pitch decks, marketing, executive summaries
+            where a hero photo carries weight. When to disable: drafts,
+            iteration, anything where you want a shape-only result.
           </p>
         </section>
 
@@ -475,8 +533,9 @@ X-RateLimit-Remaining-Hour: 412`} />
               { name: "numSlides",         type: "integer",   req: true,  desc: "1–15." },
               { name: "audienceType",      type: "enum",      req: false, desc: "executive | technical | general | marketing. Default: general." },
               { name: "engine",            type: "enum",      req: false, desc: "preso-pro | node-worker | claude-code | preso-plus. Default: node-worker (Preso Elite)." },
-              { name: "creativeMode",      type: "boolean",   req: false, desc: "Pushes the agent toward unconventional layouts." },
-              { name: "useDiagramImages", type: "boolean",   req: false, desc: "Render complex diagrams as images via Kroki." },
+              { name: "creativeMode",      type: "boolean",   req: false, desc: "Pushes the agent toward unconventional layouts. Default: false." },
+              { name: "useDiagramImages",  type: "boolean",   req: false, desc: "Render complex diagrams as images via Kroki. Default: false." },
+              { name: "useImageGen",       type: "boolean",   req: false, desc: "Allow Gemini Nano Banana photo backgrounds on cover + section dividers. Default: false." },
               { name: "styleProfileId",    type: "string",    req: false, desc: "Lock the deck to a brand style. See GET /v1/style-profiles." },
               { name: "referenceFileKeys", type: "string[]",  req: false, desc: "S3 keys from POST /v1/files." },
               { name: "chatImageKeys",     type: "string[]",  req: false, desc: "Vision-input image S3 keys." },

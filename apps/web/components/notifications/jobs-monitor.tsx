@@ -120,7 +120,25 @@ export function JobsMonitor() {
         if (!slot.jobId) continue;
         try {
           const r = await fetch(`/api/jobs/${slot.jobId}`);
-          if (!r.ok) continue;
+          // 404 ⇒ the job (or its project) was deleted server-side while
+          // localStorage still holds an in-flight slot. Without this branch
+          // we'd poll the same dead jobId every 6s forever, spamming the
+          // console with 404s. Reset the slot so the dashboard / project
+          // page no longer thinks something's generating.
+          if (r.status === 404) {
+            useGenerationStore.getState().reset(projectId);
+            continue;
+          }
+          // Other transient errors (network blip, 5xx) — try again next tick
+          // but stop spamming localStorage with stale jobs that have been
+          // stuck "generating" for >2 hours.
+          if (!r.ok) {
+            const stuckMs = slot.lastEventAt ? Date.now() - slot.lastEventAt : Infinity;
+            if (stuckMs > 2 * 60 * 60 * 1000) {
+              useGenerationStore.getState().reset(projectId);
+            }
+            continue;
+          }
           const j = (await r.json()) as JobResponse;
           if (cancelled) return;
 

@@ -21,14 +21,30 @@ type UploadStatus = "idle" | "uploading" | "processing" | "done" | "error";
 export function FileUpload({
   projectId,
   purpose,
-  accept = {
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
-    "application/pdf": [".pdf"],
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-  },
+  // Default whitelist differs by purpose: templates must be .pptx (we read
+  // the theme out of it), but references can be anything we can extract
+  // text or visuals from — docs AND images (the agent uses them as vision
+  // inputs / brand swatches).
+  accept,
   onUploadComplete,
   className,
 }: FileUploadProps) {
+  const defaultAccept: Record<string, string[]> =
+    purpose === "template"
+      ? {
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+        }
+      : {
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation": [".pptx"],
+          "application/pdf": [".pdf"],
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+          "image/png": [".png"],
+          "image/jpeg": [".jpg", ".jpeg"],
+          "image/webp": [".webp"],
+          "image/gif": [".gif"],
+          "image/svg+xml": [".svg"],
+        };
+  const effectiveAccept = accept ?? defaultAccept;
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [fileName, setFileName] = useState<string>("");
 
@@ -79,7 +95,7 @@ export function FileUpload({
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept,
+    accept: effectiveAccept,
     maxFiles: 1,
     disabled: status === "uploading" || status === "processing",
   });

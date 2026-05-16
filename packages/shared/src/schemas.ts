@@ -27,6 +27,12 @@ export const generatePresentationSchema = z.object({
   engine: z.enum(["claude-code", "preso-plus", "node-worker", "preso-pro"]).default("claude-code"),
   creativeMode: z.boolean().default(false),
   useDiagramImages: z.boolean().default(false),
+  // Toggle for Gemini-generated photo backgrounds (cover + section
+  // dividers). Default OFF — image gen is an explicit opt-in so users
+  // who don't want the API spend / aren't ready for photo-rich decks
+  // see purely shape-driven output by default. When ON, the slide-writer
+  // is encouraged to emit IMAGE_GEN markers on the cover + dividers.
+  useImageGen: z.boolean().default(false),
   chatImageKeys: z.array(z.string()).optional(),
 });
 

@@ -74,6 +74,7 @@ export const api = {
     engine?: "claude-code" | "preso-plus" | "node-worker" | "preso-pro";
     creativeMode?: boolean;
     useDiagramImages?: boolean;
+    useImageGen?: boolean;
     chatImageKeys?: string[];
   }) =>
     fetchApi<{ jobId: string }>(

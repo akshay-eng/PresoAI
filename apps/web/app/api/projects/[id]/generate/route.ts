@@ -211,6 +211,7 @@ export async function POST(
       engine: parsed.data.engine || "claude-code",
       creativeMode: parsed.data.creativeMode || false,
       useDiagramImages: parsed.data.useDiagramImages || false,
+      useImageGen: parsed.data.useImageGen ?? false,
       chatImageKeys: parsed.data.chatImageKeys || [],
     };
 

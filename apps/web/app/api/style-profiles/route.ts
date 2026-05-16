@@ -4,9 +4,28 @@ import { prisma } from "@slideforge/db";
 import { getRequiredSession } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 
+const CATALOG_CATEGORIES = [
+  "it",
+  "bfsi",
+  "consulting",
+  "education",
+  "healthcare",
+  "retail",
+  "manufacturing",
+  "media",
+  "nonprofit",
+  "other",
+] as const;
+
 const createStyleProfileSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(1000).optional(),
+  // Catalog tagging — drives the filter chips on /catalog and lets users
+  // discover styles relevant to their industry.
+  category: z.enum(CATALOG_CATEGORIES).optional(),
+  // When true, this profile appears on the public Catalog for all users to
+  // browse + clone. Otherwise it stays private to the creator.
+  isPublic: z.boolean().optional().default(false),
 });
 
 export async function GET() {
@@ -58,6 +77,8 @@ export async function POST(request: NextRequest) {
       data: {
         name: parsed.data.name,
         description: parsed.data.description,
+        category: parsed.data.category,
+        isPublic: parsed.data.isPublic ?? false,
         userId: session.user.id,
         status: "pending",
       },

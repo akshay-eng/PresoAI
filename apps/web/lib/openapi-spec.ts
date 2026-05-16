@@ -93,6 +93,7 @@ export function buildOpenApiSpec(baseUrl: string) {
             },
             creativeMode: { type: "boolean", default: false, description: "Pushes the agent to use unconventional layouts (pyramids, hub-and-spoke, comparison diptychs)." },
             useDiagramImages: { type: "boolean", default: false, description: "Render complex diagrams (sequence, architecture, ER) as images via Kroki." },
+            useImageGen: { type: "boolean", default: false, description: "Allow Gemini Nano Banana photo backgrounds on cover + section divider slides." },
             styleProfileId: { type: "string", description: "ID of a brand-style profile (yours or one of the platform globals: IBM, ICICI, Wipro). See GET /v1/style-profiles." },
             referenceFileKeys: { type: "array", items: { type: "string" }, maxItems: 10, description: "S3 keys returned by POST /v1/files for reference decks/PDFs." },
             chatImageKeys: { type: "array", items: { type: "string" }, maxItems: 10, description: "S3 keys for vision-input images (e.g. an image to clone as a slide)." },

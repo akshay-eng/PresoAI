@@ -51,6 +51,11 @@ interface JobSlot {
   quality: number | null;
   reflectionIssues: string[];
   presentationId: string | null;
+  // 1-indexed slide number currently being rendered by the node-worker
+  // (0 when nothing is in flight). Used by the sidebar to mark slides
+  // 1..currentSlideIndex-1 as done and only animate the active one.
+  currentSlideIndex: number;
+  totalSlidesBuilding: number;
   // When did we last hear from the worker? Used by the project page on mount
   // to decide whether to show the in-flight panel or trust the stored state
   // is fresh enough.
@@ -128,6 +133,8 @@ function emptySlot(): JobSlot {
     quality: null,
     reflectionIssues: [],
     presentationId: null,
+    currentSlideIndex: 0,
+    totalSlidesBuilding: 0,
     lastEventAt: null,
   };
 }
@@ -176,6 +183,27 @@ export const useGenerationStore = create<GenerationState>()(
             if (d.quality) updates.quality = d.quality as number;
             if (d.issues) updates.reflectionIssues = d.issues as string[];
             if (d.presentationId) updates.presentationId = d.presentationId as string;
+            // Per-slide build progress from node-worker. `currentSlideIndex`
+            // is 1-indexed; the value carries through the SSE stream and
+            // the sidebar uses it to render slide-level done/active states.
+            if (typeof d.currentSlideIndex === "number") {
+              updates.currentSlideIndex = d.currentSlideIndex;
+            }
+            if (typeof d.totalSlides === "number") {
+              updates.totalSlidesBuilding = d.totalSlides;
+            }
+          }
+
+          // When the writing_slides phase ends and we transition into
+          // building_pptx (but no per-slide tick has arrived yet), keep
+          // currentSlideIndex at 0 so all slides show as "queued". The
+          // first tick from the loop will flip them to active/done.
+          if (phase === "writing_slides") {
+            // During the LLM slide-writing step, we don't have true per-
+            // slide signals (one LLM call → all slides). Reset the build
+            // index so the sidebar doesn't show stale done-marks from a
+            // previous build.
+            updates.currentSlideIndex = 0;
           }
 
           if (phase === "complete") {

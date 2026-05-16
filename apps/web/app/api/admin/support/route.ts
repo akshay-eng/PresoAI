@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
 
   const items = tickets.map((t) => ({
     id: t.id,
+    ticketNumber: t.ticketNumber,
     category: t.category,
     severity: t.severity,
     area: t.area,

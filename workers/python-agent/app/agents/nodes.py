@@ -26,9 +26,661 @@ from app.services.knowledge_graph import KnowledgeGraphService
 from app.services.logo_dev import extract_brand_mentions, resolve_brand_logos
 from app.services.kroki import render_diagram
 from app.services.kroki_skill import KROKI_SKILL_REFERENCE
+from app.services.image_gen import generate_image
 from app.services.s3 import S3Service
 
 logger = structlog.get_logger()
+
+
+# Skill block injected into the slide_writer system prompt. Teaches the LLM
+# how to emit an IMAGE_GEN marker that the post-processor will turn into a
+# real Gemini-generated photo + brand-color tint overlay + optional fade.
+IMAGE_GEN_SKILL_REFERENCE = """
+## PHOTO BACKGROUND (cover / divider slides ONLY)
+
+You can request a real photo as a slide background by emitting ONE special
+JavaScript COMMENT line at the very top of the slide's code:
+
+    // IMAGE_GEN: prompt="<short photo description>" tint="<palette_hex>" tintOpacity=<25-50> fade="bottom"
+
+The post-processor expands that single comment into:
+  1. `slide.addImage(...)` for a Gemini-generated photo at full bleed.
+  2. A semi-transparent brand-color tint over the photo.
+  3. A subtle vertical fade behind your title text (if `fade=` is set).
+
+Then your normal `slide.addText(...)` / `slide.addShape(...)` calls render
+on top — fully editable in PowerPoint.
+
+### When to use
+- Cover slide of the deck (1 max).
+- A section divider between major chapters.
+- NEVER on content slides (tables, KPIs, diagrams).
+
+### Fields (all in one comment line, no line breaks)
+- `prompt`    — REQUIRED. Photo-realistic description, NO text in image.
+- `tint`      — Hex (no #) from the LOCKED BRAND PALETTE. Required.
+- `tintOpacity` — 25-50 usually looks right. Default 30.
+- `fade`      — `"bottom"` if title sits at y≥4, `"top"` if title sits at
+                y≤2.5, `"none"` (default) otherwise.
+- `aspect`    — `"16:9"` (default), `"4:3"`, `"1:1"`, `"9:16"`.
+
+### Example (entire cover slide)
+```javascript
+// IMAGE_GEN: prompt="A modern data center server hall, cool blue ambient light, cinematic, no people, no text" tint="0F2A4D" tintOpacity=30 fade="bottom"
+slide.addText("The Self-Healing Cloud", { x: 0.7, y: 4.6, w: 11.9, h: 1.2, fontSize: 56, bold: true, color: "FFFFFF" });
+slide.addText("Agentic AIOps for Enterprise Kubernetes", { x: 0.7, y: 5.9, w: 11.9, h: 0.7, fontSize: 24, color: "FFFFFF" });
+slide.addText("CTO Office · May 2026", { x: 0.7, y: 6.7, w: 11.9, h: 0.5, fontSize: 18, color: "FFFFFF" });
+```
+
+### Hard rules
+- The marker is a `//` COMMENT, not a string. Never put it inside
+  `slide.addText("...")` — that would render the marker as visible text.
+- ONE IMAGE_GEN per slide, ONE-ish per deck.
+- Do NOT also emit `addShape(RECTANGLE, ...)` that covers the whole slide
+  after the marker — the post-processor already provides tint + fade.
+- `tint` MUST come from the locked palette block above.
+"""
+
+
+# Skill block teaching the LLM to use GRADIENT markers. pptxgenjs 4.0.1 has
+# no native gradient fill, so the post-processor expands a single marker
+# into a stack of thin semi-transparent rectangles that simulate a smooth
+# color transition. The same machinery powers vignettes / fade-over-photo
+# overlays via the `vertical-fade-bottom` and `radial-vignette` directions.
+GRADIENT_SKILL_REFERENCE = """
+## 🌈 GRADIENT FILLS & PHOTO FADE OVERLAYS
+
+pptxgenjs has no native gradient. To get a real gradient look you emit a
+single `// GRADIENT:` marker and the post-processor expands it into a
+stack of semi-transparent rectangles (10-16 steps, smooth in PowerPoint).
+
+### When to use it (BIG visual wins, use sparingly)
+- **Cover / title backgrounds** — brand-primary → brand-accent vertical
+  gradient. Replaces flat colored blocks.
+- **Section dividers** — diagonal gradient strip behind the section title.
+- **Photo darken-fade** — over IMAGE_GEN to make overlaid title text
+  readable. Direction `vertical-fade-bottom`: transparent top → dark bottom.
+- **Subtle KPI card background** — a soft top-to-bottom tonal shift gives
+  cards depth without competing for attention.
+
+### Marker syntax (single comment line — like IMAGE_GEN):
+```javascript
+// GRADIENT: from="HEX" to="HEX" direction="<dir>" x=<in> y=<in> w=<in> h=<in> steps=<n> fromOpacity=<0-100> toOpacity=<0-100>
+```
+
+| field         | meaning                                                       |
+|---------------|---------------------------------------------------------------|
+| `from` / `to` | start / end color, hex no `#` (e.g. `1A3A6B`).                |
+| `direction`   | `vertical`, `horizontal`, `diagonal`, `radial`,               |
+|               | `vertical-fade-bottom`, `vertical-fade-top`,                  |
+|               | `horizontal-fade-right`, `horizontal-fade-left`.              |
+|               | `*-fade-*` interpolates ONLY the opacity, keeping `to` color. |
+| `steps`       | how many rectangles to stack. 10-14 is smooth, default 12.    |
+| `fromOpacity` | transparency of the FIRST step (0=opaque, 100=invisible).     |
+|               | Default 0 for solid gradients, 100 for fade-over-photo.       |
+| `toOpacity`   | transparency of the LAST step. Default 0.                     |
+| `x/y/w/h`     | placement in inches. Default = full bleed.                    |
+
+### Cover gradient (no photo)
+```javascript
+// GRADIENT: from="1A3A6B" to="5BC0EB" direction="diagonal" x=0 y=0 w=13.33 h=7.5 steps=12
+slide.addText("Agentic AIOps for Enterprise Kubernetes",
+  { x: 0.7, y: 2.8, w: 9, h: 1.6, fontSize: 44, bold: true, color: "FFFFFF" });
+```
+
+### Cover photo + fade overlay (Cognizant-style)
+The IMAGE_GEN line MUST come first (it goes at the back of the z-order).
+The GRADIENT goes BETWEEN the photo and the title — text on top stays
+crisp; photo fades into the brand color where the text sits.
+```javascript
+// IMAGE_GEN: prompt="A futuristic data center server hall, blue ambient light, cinematic, no people, no text" x=0 y=0 w=13.33 h=7.5 tint="" tintOpacity=0 aspect="16:9"
+// GRADIENT: from="000000" to="1A3A6B" direction="vertical-fade-bottom" x=0 y=3.0 w=13.33 h=4.5 steps=14 fromOpacity=100 toOpacity=15
+slide.addText("Agentic AIOps", { x: 0.7, y: 4.2, w: 11.9, h: 1.4, fontSize: 56, bold: true, color: "FFFFFF" });
+slide.addText("Self-healing Kubernetes at enterprise scale",
+  { x: 0.7, y: 5.7, w: 11.9, h: 0.7, fontSize: 22, color: "FFFFFF" });
+```
+
+### Radial vignette (focus the center of a slide)
+```javascript
+// GRADIENT: from="00000000" to="000000" direction="radial-vignette" x=0 y=0 w=13.33 h=7.5 steps=10 fromOpacity=100 toOpacity=40
+```
+(Transparent center, darker corners — great for centering attention on a
+single hero element.)
+
+### HARD RULES
+- ONE photo + ONE fade overlay per cover. Two gradient stacks on the same
+  region looks muddy.
+- Don't gradient every slide — use it where the content benefits from
+  depth (covers, section dividers, hero KPI cards). NEVER >50% of slides.
+- Always use the locked brand palette for `from` / `to`.
+- The marker MUST be a single line — multi-line markers won't be parsed.
+- For fade-over-photo readability: title text should be `color: "FFFFFF"`
+  (or pure brand-accent) at fontSize ≥ 36 bold.
+"""
+
+
+# Direction tokens recognized by _process_gradient_markers. Kept at module
+# scope so the post-processor and the marker parser stay in sync.
+GRADIENT_DIRECTIONS = {
+    "vertical",
+    "horizontal",
+    "diagonal",
+    "radial",
+    "vertical-fade-bottom",
+    "vertical-fade-top",
+    "horizontal-fade-right",
+    "horizontal-fade-left",
+    "radial-vignette",
+}
+
+
+def _interp_color(c1: str, c2: str, t: float) -> str:
+    """Linearly interpolate between two 6-digit hex colors. `t` in [0,1]."""
+    def _h(c: str) -> tuple[int, int, int]:
+        c = c.lstrip("#")
+        if len(c) == 3:
+            c = "".join(ch * 2 for ch in c)
+        c = (c + "000000")[:6]
+        return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
+    r1, g1, b1 = _h(c1)
+    r2, g2, b2 = _h(c2)
+    r = round(r1 + (r2 - r1) * t)
+    g = round(g1 + (g2 - g1) * t)
+    b = round(b1 + (b2 - b1) * t)
+    return f"{r:02X}{g:02X}{b:02X}"
+
+
+def _build_gradient_rects(
+    *,
+    from_color: str,
+    to_color: str,
+    direction: str,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    steps: int,
+    from_opacity: int,
+    to_opacity: int,
+) -> list[str]:
+    """Generate pptxgenjs addShape calls that stack into a smooth gradient.
+
+    The trick: pptxgenjs supports per-shape `transparency` on a solid fill.
+    Stacking ~12 thin rectangles with stepwise color AND/OR transparency
+    produces something PowerPoint renders smoothly — and the user can
+    still edit each rectangle by hand later.
+
+    For *-fade-* directions, the COLOR stays at `to_color` and only the
+    transparency interpolates (from `from_opacity` to `to_opacity`). For
+    the others, the color AND a constant transparency (averaged) both
+    apply per step.
+    """
+    steps = max(2, min(24, int(steps)))
+    is_fade = "-fade-" in direction
+    rects: list[str] = []
+
+    if direction == "vertical" or direction == "vertical-fade-bottom" or direction == "vertical-fade-top":
+        # Horizontal strips, height/steps each.
+        strip_h = h / steps
+        for i in range(steps):
+            t = i / (steps - 1)
+            if direction == "vertical-fade-top":
+                t = 1 - t  # invert so top is opaque, bottom transparent
+            color = to_color if is_fade else _interp_color(from_color, to_color, t)
+            opacity = round(from_opacity + (to_opacity - from_opacity) * t)
+            rects.append(
+                f'slide.addShape(pres.shapes.RECTANGLE, {{ '
+                f'x: {x:.3f}, y: {y + i * strip_h:.3f}, w: {w:.3f}, h: {strip_h + 0.02:.3f}, '
+                f'fill: {{ color: "{color}", transparency: {opacity} }}, '
+                f'line: {{ color: "{color}", width: 0 }} }});'
+            )
+        return rects
+
+    if direction == "horizontal" or direction in ("horizontal-fade-right", "horizontal-fade-left"):
+        strip_w = w / steps
+        for i in range(steps):
+            t = i / (steps - 1)
+            if direction == "horizontal-fade-left":
+                t = 1 - t
+            color = to_color if is_fade else _interp_color(from_color, to_color, t)
+            opacity = round(from_opacity + (to_opacity - from_opacity) * t)
+            rects.append(
+                f'slide.addShape(pres.shapes.RECTANGLE, {{ '
+                f'x: {x + i * strip_w:.3f}, y: {y:.3f}, w: {strip_w + 0.02:.3f}, h: {h:.3f}, '
+                f'fill: {{ color: "{color}", transparency: {opacity} }}, '
+                f'line: {{ color: "{color}", width: 0 }} }});'
+            )
+        return rects
+
+    if direction == "diagonal":
+        # Diagonal-band approximation: stack horizontal strips but skew the
+        # color blend so it reads as 45° (top-left → bottom-right).
+        # pptxgenjs has no rotation on shapes for fills, so this is the
+        # closest we can get without raw XML.
+        strip_h = h / steps
+        for i in range(steps):
+            t = i / (steps - 1)
+            color = _interp_color(from_color, to_color, t)
+            opacity = round(from_opacity + (to_opacity - from_opacity) * t)
+            offset_x = x - 0.6 + 1.2 * t  # slight horizontal shift per step
+            rects.append(
+                f'slide.addShape(pres.shapes.RECTANGLE, {{ '
+                f'x: {offset_x:.3f}, y: {y + i * strip_h:.3f}, w: {w + 1.2:.3f}, h: {strip_h + 0.02:.3f}, '
+                f'fill: {{ color: "{color}", transparency: {opacity} }}, '
+                f'line: {{ color: "{color}", width: 0 }} }});'
+            )
+        return rects
+
+    if direction in ("radial", "radial-vignette"):
+        # Concentric rectangles shrinking inward. The OUTER ring is the
+        # `to` color (or its opacity); the CENTER is the `from` color/
+        # opacity. For `radial-vignette` we keep `to_color` constant and
+        # only fade transparency — exactly the corners-dark / center-clear
+        # spotlight effect.
+        # We iterate from the outer ring inward so center sits on top.
+        cx, cy = x + w / 2, y + h / 2
+        for i in range(steps):
+            t = i / (steps - 1)
+            shrink = 1 - t
+            rect_w = w * shrink
+            rect_h = h * shrink
+            rect_x = cx - rect_w / 2
+            rect_y = cy - rect_h / 2
+            # Reverse: outer step = `to`, inner = `from`.
+            color_t = 1 - t
+            color = to_color if direction == "radial-vignette" else _interp_color(from_color, to_color, color_t)
+            opacity = round(to_opacity + (from_opacity - to_opacity) * t)
+            rects.append(
+                f'slide.addShape(pres.shapes.RECTANGLE, {{ '
+                f'x: {rect_x:.3f}, y: {rect_y:.3f}, w: {rect_w:.3f}, h: {rect_h:.3f}, '
+                f'fill: {{ color: "{color}", transparency: {opacity} }}, '
+                f'line: {{ color: "{color}", width: 0 }} }});'
+            )
+        return rects
+
+    return rects
+
+
+async def _process_gradient_markers(slide_codes: list[dict]) -> list[dict]:
+    """Expand `// GRADIENT:` markers into stacked-rect pptxgenjs code.
+
+    Pure-Python — no network, no S3. Cheap to run on every slide. Skips
+    slides that don't contain the marker word so it's near-free.
+    """
+    import re
+
+    line_pattern = re.compile(r'//\s*GRADIENT:\s*(.+?)(?=\n|$)')
+    kv_pattern = re.compile(r'(\w+)\s*=\s*(?:"([^"]*)"|([^\s]+))')
+
+    for slide in slide_codes:
+        code = slide.get("code", "")
+        if "GRADIENT:" not in code:
+            continue
+
+        matches = list(line_pattern.finditer(code))
+        for m in reversed(matches):  # reverse to preserve offsets
+            args_text = m.group(1).strip()
+            kvs: dict[str, str] = {}
+            for kvm in kv_pattern.finditer(args_text):
+                key = kvm.group(1)
+                val = kvm.group(2) if kvm.group(2) is not None else kvm.group(3)
+                kvs[key] = val
+
+            from_color = (kvs.get("from", "1A3A6B") or "1A3A6B").lstrip("#")
+            to_color = (kvs.get("to", "5BC0EB") or "5BC0EB").lstrip("#")
+            direction = (kvs.get("direction", "vertical") or "vertical").lower()
+            if direction not in GRADIENT_DIRECTIONS:
+                direction = "vertical"
+
+            try:
+                x = float(kvs.get("x", "0"))
+                y = float(kvs.get("y", "0"))
+                w = float(kvs.get("w", "13.33"))
+                h = float(kvs.get("h", "7.5"))
+                steps = int(kvs.get("steps", "12"))
+                from_opacity = max(0, min(100, int(kvs.get("fromOpacity", "0"))))
+                to_opacity = max(0, min(100, int(kvs.get("toOpacity", "0"))))
+            except ValueError:
+                x, y, w, h = 0.0, 0.0, 13.33, 7.5
+                steps = 12
+                from_opacity, to_opacity = 0, 0
+
+            rects = _build_gradient_rects(
+                from_color=from_color,
+                to_color=to_color,
+                direction=direction,
+                x=x, y=y, w=w, h=h,
+                steps=steps,
+                from_opacity=from_opacity,
+                to_opacity=to_opacity,
+            )
+            logger.info(
+                "gradient_expanded",
+                slide=slide.get("slide_number"),
+                direction=direction,
+                steps=len(rects),
+            )
+            replacement = "\n      ".join(rects)
+            code = code[:m.start()] + replacement + code[m.end():]
+
+        slide["code"] = code
+
+    return slide_codes
+
+
+def _build_pptx_diagram_fallback(diagram_type: str, source: str) -> str:
+    """When Kroki rejects a diagram source (e.g. mermaid mindmap with multiple
+    root nodes), render a *native* pptxgenjs concept-block from the source
+    text so the slide isn't left empty. Best-effort: extracts identifier-
+    like words / quoted strings from the source and lays them out as a
+    title + bullet grid below the slide's title area.
+
+    This is a graceful degradation — the original slide-writer prompt
+    promised a diagram; we ship a styled list instead of a blank slide.
+    """
+    import re
+
+    # Pull "labels" out of the source. Works for most kroki dialects:
+    #   - quoted strings (D2 / mermaid)
+    #   - identifiers after `(` for mindmap roots: `root((Brand DNA))`
+    #   - bullet/indented lines for mermaid mindmap nested branches
+    labels: list[str] = []
+    # Quoted strings first.
+    for m in re.finditer(r'"([^"\n]{2,80})"', source):
+        labels.append(m.group(1).strip())
+    # mindmap `root((...))` capture.
+    for m in re.finditer(r'\(\(([^)]+)\)\)', source):
+        labels.append(m.group(1).strip())
+    # Indented non-quoted words (mermaid mindmap leaves and the like).
+    # We always run this — even when we already captured a `((root))`,
+    # because the branches/leaves are usually plain indented words that
+    # neither the quoted-string nor the double-paren regex would catch.
+    SKIP_PREFIXES = (
+        "%%", "//", "graph ", "flowchart ", "mindmap", "timeline", "sankey",
+        "sankey-beta", "section ", "quadrant", "quadrant-1", "quadrant-2",
+        "quadrant-3", "quadrant-4", "journey", "title ", "x-axis", "y-axis",
+        "bar ", "dateFormat", "@startuml", "@enduml", "direction:", "style ",
+        "classDef", "config:", "init:", "subgraph", "end",
+    )
+    for line in source.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip the configuration / reserved-word lines.
+        low = stripped.lower()
+        if any(low.startswith(p) for p in SKIP_PREFIXES):
+            continue
+        # Strip leading id/dash/colon markers, then the line's leading id+":".
+        cleaned = re.sub(r"^[\-\*•]\s*", "", stripped)
+        cleaned = re.sub(r"^[A-Za-z_][\w-]*\s*-?->\s*", "", cleaned)
+        # If the line is `id: "Label"` or `id: Label`, take the value side.
+        if ":" in cleaned:
+            cleaned = cleaned.split(":", 1)[1].strip()
+        # Drop bracket / paren wrappers + double-paren content (already pulled).
+        cleaned = re.sub(r"\(\([^)]+\)\)", "", cleaned).strip()
+        cleaned = cleaned.strip(" ,;[](){}\"'")
+        # Drop tokens that are reserved diagram keywords (e.g. "root" left
+        # behind after stripping `((...))`).
+        if cleaned.lower() in {"root", "node", "g", "subgraph", "end", "begin"}:
+            continue
+        if cleaned and 2 <= len(cleaned) <= 60:
+            labels.append(cleaned)
+    # Dedup while preserving order, cap.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for lab in labels:
+        key = lab.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(lab)
+        if len(deduped) >= 8:
+            break
+
+    if not deduped:
+        # Genuinely nothing to render — leave a small marker that's better
+        # than complete silence.
+        return (
+            'slide.addText("Diagram unavailable", '
+            '{ x: 1.0, y: 3.5, w: 11.33, h: 0.6, fontSize: 16, color: "888888", italic: true, align: "center" });'
+        )
+
+    # Lay out as a 2-column card grid below y=2.0.
+    first = deduped[0]
+    rest = deduped[1:]
+    out: list[str] = []
+    # Lead concept.
+    out.append(
+        f'slide.addShape(pres.shapes.ROUNDED_RECTANGLE, {{ x: 4.66, y: 2.0, w: 4.0, h: 1.0, '
+        f'fill: {{ color: "0F2A4D" }}, line: {{ color: "0F2A4D", width: 0 }}, rectRadius: 0.08 }});'
+    )
+    safe_first = first.replace('"', "'")
+    out.append(
+        f'slide.addText("{safe_first}", '
+        f'{{ x: 4.66, y: 2.0, w: 4.0, h: 1.0, fontSize: 22, bold: true, color: "FAFAF7", align: "center", valign: "middle" }});'
+    )
+    # Branches in a 2-col grid below.
+    col_w, row_h = 5.5, 0.9
+    for i, label in enumerate(rest[:6]):
+        col = i % 2
+        row = i // 2
+        bx = 0.8 + col * (col_w + 0.6)
+        by = 3.3 + row * (row_h + 0.25)
+        safe = label.replace('"', "'")
+        out.append(
+            f'slide.addShape(pres.shapes.ROUNDED_RECTANGLE, {{ x: {bx:.2f}, y: {by:.2f}, w: {col_w:.2f}, h: {row_h:.2f}, '
+            f'fill: {{ color: "5BC0EB" }}, line: {{ color: "5BC0EB", width: 0 }}, rectRadius: 0.06 }});'
+        )
+        out.append(
+            f'slide.addText("{safe}", '
+            f'{{ x: {bx + 0.2:.2f}, y: {by:.2f}, w: {col_w - 0.4:.2f}, h: {row_h:.2f}, fontSize: 16, color: "0F2A4D", valign: "middle" }});'
+        )
+    logger.info("diagram_fallback_rendered", type=diagram_type, labels=len(deduped))
+    return "\n      ".join(out)
+
+
+def _dedupe_logo_images(slide_codes: list[dict]) -> list[dict]:
+    """Strip duplicate `img.logo.dev/<domain>` calls across slides. The same
+    logo on multiple slides reads as a watermark; on a freshly-named brand
+    (e.g. a deck's own product) logo.dev returns a generic placeholder
+    which the LLM then sprinkles everywhere. We keep the FIRST occurrence
+    of each unique domain (so an integration page that legitimately uses
+    it still renders) and remove the rest.
+    """
+    import re
+
+    # Match: slide.addImage({ ... path: "https://img.logo.dev/<domain>?..." ... });
+    # Brace-balanced scan because options can nest (sizing: { ... }).
+    HEAD = "slide.addImage("
+    URL_RE = re.compile(r'path\s*:\s*["\'](https?://img\.logo\.dev/([^"\'\?]+)[^"\']*)["\']')
+
+    seen_domains: set[str] = set()
+    total_removed = 0
+
+    for slide in slide_codes:
+        code = slide.get("code", "")
+        if "img.logo.dev" not in code:
+            continue
+        out: list[str] = []
+        cursor = 0
+        pos = code.find(HEAD)
+        while pos != -1:
+            brace_start = code.find("{", pos)
+            if brace_start == -1:
+                break
+            depth = 0
+            i = brace_start
+            while i < len(code):
+                ch = code[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            if depth != 0:
+                break
+            brace_end = i
+            end = brace_end + 1
+            while end < len(code) and code[end] in " \t\n)":
+                end += 1
+            if end < len(code) and code[end] == ";":
+                end += 1
+
+            body = code[brace_start + 1 : brace_end]
+            m = URL_RE.search(body)
+            next_pos = code.find(HEAD, end)
+            if m:
+                domain = m.group(2).lower()
+                if domain in seen_domains:
+                    out.append(code[cursor:pos])
+                    cursor = end
+                    total_removed += 1
+                else:
+                    seen_domains.add(domain)
+            pos = next_pos
+
+        out.append(code[cursor:])
+        slide["code"] = "".join(out)
+
+    if total_removed:
+        logger.info("logo_dedupe_stripped", removed=total_removed, kept_domains=sorted(seen_domains))
+    return slide_codes
+
+
+def _rescue_addkroki_calls(slide_codes: list[dict]) -> list[dict]:
+    """The LLM has been inventing a non-existent API:
+        addKroki(slide, 'mermaid', sourceVar, { x: 1, y: 2, w: 11, h: 5 });
+    At runtime this throws a ReferenceError and the rest of the slide
+    silently fails to render — leaving only whatever code ran before the
+    invented call. Convert those calls into proper `// KROKI_DIAGRAM:`
+    comment markers so the existing renderer picks them up. The geometry
+    is dropped (the KROKI render places diagrams at a fixed slot the
+    renderer chose anyway).
+    """
+    import re
+
+    # addKroki(slide, "<type>", <varname or string>, { ... });
+    call_re = re.compile(
+        r'addKroki\(\s*\w+\s*,\s*["\'](\w+)["\']\s*,\s*'
+        r'(?:`([\s\S]*?)`|"([^"]*?)"|\'([^\']*?)\'|(\w+))\s*,\s*'
+        r'\{[^{}]*?\}\s*\)\s*;?',
+        re.MULTILINE,
+    )
+    # const NAME = `multiline tpl` OR "string with \n";
+    const_tpl_re = re.compile(r'const\s+(\w+)\s*=\s*`([\s\S]+?)`\s*;', re.MULTILINE)
+    const_str_re = re.compile(r'const\s+(\w+)\s*=\s*"([\s\S]+?)"\s*;', re.MULTILINE)
+    let_var_re = re.compile(r'(?:let|var)\s+(\w+)\s*=\s*["\'`]([\s\S]+?)["\'`]\s*;', re.MULTILINE)
+
+    for slide in slide_codes:
+        code = slide.get("code", "")
+        if "addKroki(" not in code:
+            continue
+
+        # Resolve all const/let var names to their string content (with
+        # JS escapes un-escaped). Backtick templates keep newlines as-is.
+        consts: dict[str, str] = {}
+        for m in const_tpl_re.finditer(code):
+            consts[m.group(1)] = m.group(2)
+        for m in const_str_re.finditer(code):
+            consts[m.group(1)] = m.group(2).replace("\\n", "\n").replace('\\"', '"')
+        for m in let_var_re.finditer(code):
+            consts[m.group(1)] = m.group(2).replace("\\n", "\n").replace('\\"', '"')
+
+        def _replace(m: re.Match) -> str:
+            dtype = m.group(1)
+            # Pick whichever capture group fired (`...`, "...", '...', varname).
+            tpl_src = m.group(2)
+            dq_src = m.group(3)
+            sq_src = m.group(4)
+            var_name = m.group(5)
+            if tpl_src is not None:
+                source = tpl_src
+            elif dq_src is not None:
+                source = dq_src.replace("\\n", "\n").replace('\\"', '"')
+            elif sq_src is not None:
+                source = sq_src.replace("\\n", "\n").replace("\\'", "'")
+            elif var_name and var_name in consts:
+                source = consts[var_name]
+            else:
+                return ""  # cannot resolve; drop the call
+
+            source = source.strip()
+            if not source:
+                return ""
+
+            lines = ["// KROKI_DIAGRAM:" + dtype]
+            for line in source.splitlines():
+                lines.append("// " + line)
+            lines.append("// END_KROKI_DIAGRAM")
+            logger.info("rescued_addkroki_call", type=dtype, slide=slide.get("slide_number"))
+            return "\n".join(lines)
+
+        code = call_re.sub(_replace, code)
+        slide["code"] = code
+
+    return slide_codes
+
+
+def _rescue_kroki_in_addtext(slide_codes: list[dict]) -> list[dict]:
+    """Pre-process: when the LLM emits the KROKI_DIAGRAM marker as a STRING
+    inside `slide.addText("KROKI_DIAGRAM:type\\n<source>", ...)` instead of
+    as a JS comment, the post-processor would skip it and the marker text
+    would render as visible body copy. This scanner finds those patterns,
+    extracts (type, source), and rewrites the line as the proper comment-
+    style marker so `_process_kroki_diagrams` can pick it up.
+
+    Same goes for sources stored in a const + concatenated:
+        const def = "...";
+        slide.addText("KROKI_DIAGRAM:mermaid\\n" + def, { ... });
+    For that we look back up to 5 lines for a `const <name> = "..."`.
+    """
+    import re
+
+    # Match: slide.addText("KROKI_DIAGRAM:<type>\n<src>" [+ <varname>], { ... });
+    pattern = re.compile(
+        r'slide\.addText\(\s*"KROKI_DIAGRAM:(\w+)(?:\\n|\n)([\s\S]*?)"'
+        r'(?:\s*\+\s*(\w+))?'
+        r'\s*,\s*\{[^{}]*?\}\s*\)\s*;?',
+        re.MULTILINE,
+    )
+    const_pattern = re.compile(r'const\s+(\w+)\s*=\s*"([\s\S]+?)";', re.MULTILINE)
+
+    for slide in slide_codes:
+        code = slide.get("code", "")
+        if "KROKI_DIAGRAM:" not in code or "addText" not in code:
+            continue
+
+        # Build a map of const_name -> string literal for resolution.
+        consts: dict[str, str] = {}
+        for cm in const_pattern.finditer(code):
+            # Un-escape common literal escapes that appear inside JS strings.
+            val = cm.group(2).replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
+            consts[cm.group(1)] = val
+
+        def _replace(m: re.Match) -> str:
+            dtype = m.group(1)
+            head_src = m.group(2).replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
+            tail_var = m.group(3)
+            tail_src = consts.get(tail_var, "") if tail_var else ""
+            source = (head_src + ("\n" + tail_src if tail_src else "")).strip()
+            if not source:
+                return ""  # delete the malformed call
+            # Re-emit as a proper comment-style marker. Each source line
+            # becomes a `// ...` so the existing parser regex matches.
+            lines = ["// KROKI_DIAGRAM:" + dtype]
+            for line in source.splitlines():
+                lines.append("// " + line)
+            lines.append("// END_KROKI_DIAGRAM")
+            logger.info("rescued_kroki_from_addtext", type=dtype, slide=slide.get("slide_number"))
+            return "\n".join(lines)
+
+        code = pattern.sub(_replace, code)
+        slide["code"] = code
+
+    return slide_codes
 
 
 async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[dict]:
@@ -61,14 +713,33 @@ async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[
 
             # Render via Kroki API (PNG for pptxgenjs compatibility)
             image_bytes = await render_diagram(diagram_type, source, "png")
-            if not image_bytes:
-                logger.error("kroki_render_failed", type=diagram_type, slide=slide.get("slide_number"))
-                # Remove the marker, leave a placeholder text
-                replacement = (
-                    'slide.addText("[ Diagram could not be rendered ]", '
-                    '{ x: 1, y: 3, w: 11, h: 1, fontSize: 14, color: "999999", align: "center" });'
+
+            # Reject not just None but also trivially-tiny outputs. Kroki
+            # returns a 200 OK with a near-empty image when the source has
+            # subtle syntax errors (D2 with bare identifiers as labels →
+            # renders as a couple of dots, ~600-900 B). Threshold tuned
+            # so legitimately small charts (mermaid sankey-beta ~3 KB,
+            # quadrantChart ~4 KB) still pass — only the truly-empty
+            # renders are rejected.
+            MIN_DIAGRAM_BYTES = 1500
+            looks_broken = bool(image_bytes) and len(image_bytes) < MIN_DIAGRAM_BYTES
+
+            if not image_bytes or looks_broken:
+                logger.error(
+                    "kroki_render_failed_or_broken",
+                    type=diagram_type,
+                    slide=slide.get("slide_number"),
+                    bytes=(len(image_bytes) if image_bytes else 0),
+                    reason="too_small" if looks_broken else "no_response",
+                    source_preview=source[:200],
                 )
-                code = code[:m.start()] + replacement + code[m.end():]
+                # Fallback: build a native pptxgenjs concept-map / list from
+                # the source instead of leaving an empty slide. Especially
+                # important for mindmap/timeline/sankey where Kroki is
+                # finicky about syntax — better to ship SOMETHING than a
+                # blank slide with just the title.
+                fallback_code = _build_pptx_diagram_fallback(diagram_type, source)
+                code = code[:m.start()] + fallback_code + code[m.end():]
                 continue
 
             # Encode as base64 data URI and embed directly — avoids HTTP/HTTPS fetch issues
@@ -94,6 +765,261 @@ async def _process_kroki_diagrams(slide_codes: list[dict], job_id: str) -> list[
         slide["code"] = code
 
     return slide_codes
+
+
+async def _process_generated_images(
+    slide_codes: list[dict],
+    job_id: str,
+    api_key: str | None,
+) -> list[dict]:
+    """Render IMAGE_GEN markers via Gemini Nano Banana.
+
+    Marker syntax the slide-writer emits:
+
+        // IMAGE_GEN: prompt="describe the photo" x=0.0 y=0.0 w=13.33 h=7.5 \\
+        //           tint="#1A3A6B" tintOpacity=55 aspect="16:9"
+
+    On render we:
+      1. Generate a JPEG via the image_gen service.
+      2. Upload it to S3 (so the .pptx stays portable + we can re-render later).
+      3. Replace the marker with TWO pptxgenjs calls — `slide.addImage` for
+         the photo, then `slide.addShape` with a transparent rect for the
+         brand-color tint overlay. Text added by the slide on top of these
+         remains fully editable in PowerPoint.
+
+    On failure (no key, API error, etc.) we replace the marker with a
+    solid brand-tinted rectangle so the slide still renders cleanly.
+    """
+    import base64 as b64lib
+    import re
+
+    # Capture the raw marker line; everything between IMAGE_GEN: and the
+    # newline is parsed as `key=value` (or `key="value with spaces"`)
+    # tokens. The marker is a SINGLE comment line — multi-line is awkward
+    # since the slide writer emits straight JS.
+    line_pattern = re.compile(r'//\s*IMAGE_GEN:\s*(.+?)(?=\n|$)')
+    kv_pattern = re.compile(r'(\w+)\s*=\s*(?:"([^"]*)"|([^\s]+))')
+
+    s3 = S3Service()
+    img_idx = 0
+
+    for slide in slide_codes:
+        code = slide.get("code", "")
+        if "IMAGE_GEN" not in code:
+            continue
+
+        matches = list(line_pattern.finditer(code))
+        for m in reversed(matches):  # reverse-iterate to preserve offsets
+            args_text = m.group(1).strip()
+            kvs: dict[str, str] = {}
+            for kvm in kv_pattern.finditer(args_text):
+                key = kvm.group(1)
+                val = kvm.group(2) if kvm.group(2) is not None else kvm.group(3)
+                kvs[key] = val
+
+            prompt = kvs.get("prompt", "").strip()
+            if not prompt:
+                # Marker without a prompt → drop it silently.
+                code = code[:m.start()] + code[m.end():]
+                continue
+
+            # Geometry (defaults = full-bleed 16:9 slide). pptxgenjs uses
+            # inches; LAYOUT_WIDE is 13.33 × 7.5.
+            try:
+                x = float(kvs.get("x", "0"))
+                y = float(kvs.get("y", "0"))
+                w = float(kvs.get("w", "13.33"))
+                h = float(kvs.get("h", "7.5"))
+            except ValueError:
+                x, y, w, h = 0.0, 0.0, 13.33, 7.5
+
+            aspect = kvs.get("aspect", "16:9")
+            tint = (kvs.get("tint", "") or "").lstrip("#")
+            try:
+                tint_opacity = max(0, min(100, int(kvs.get("tintOpacity", "40"))))
+            except ValueError:
+                tint_opacity = 40
+            # fade= produces an auto-positioned vertical fade overlay so the
+            # LLM doesn't need to manually compose a GRADIENT marker on top
+            # of IMAGE_GEN (and inevitably get the geometry/opacity wrong).
+            fade_mode = (kvs.get("fade", "none") or "none").lower()
+            if fade_mode not in ("top", "bottom", "none"):
+                fade_mode = "none"
+
+            replacement_parts: list[str] = []
+
+            # ── 1. Generate the photo. ────────────────────────────────
+            image_bytes = await generate_image(prompt, api_key=api_key, aspect_ratio=aspect)
+
+            if image_bytes:
+                b64 = b64lib.b64encode(image_bytes).decode("ascii")
+                logger.info(
+                    "image_gen_embedded",
+                    slide=slide.get("slide_number"),
+                    bytes=len(image_bytes),
+                    aspect=aspect,
+                    prompt_preview=prompt[:80],
+                )
+
+                # Best-effort S3 mirror (non-blocking).
+                try:
+                    s3_key = f"generated-images/{job_id}/img_{img_idx}.jpg"
+                    s3.upload_bytes(image_bytes, s3_key, content_type="image/jpeg")
+                except Exception:
+                    pass
+                img_idx += 1
+
+                replacement_parts.append(
+                    f'slide.addImage({{ data: "image/jpeg;base64,{b64}", '
+                    f'x: {x:.3f}, y: {y:.3f}, w: {w:.3f}, h: {h:.3f} }});'
+                )
+            else:
+                # Fallback: solid brand-color rectangle PLUS a subtle
+                # diagonal gradient strip so the cover doesn't look like a
+                # plain colored card. The text the slide-writer added on
+                # top of the marker still renders over the rectangle.
+                fallback_color = tint or "1A3A6B"
+                logger.warning(
+                    "image_gen_fallback_to_color",
+                    slide=slide.get("slide_number"),
+                    color=fallback_color,
+                    reason="nano_banana_unavailable_or_quota",
+                )
+                # Base rectangle.
+                replacement_parts.append(
+                    f'slide.addShape(pres.shapes.RECTANGLE, {{ '
+                    f'x: {x:.3f}, y: {y:.3f}, w: {w:.3f}, h: {h:.3f}, '
+                    f'fill: {{ color: "{fallback_color}" }}, '
+                    f'line: {{ color: "{fallback_color}", width: 0 }} }});'
+                )
+                # Subtle highlight band — a thin lighter rectangle near the
+                # top, low opacity. Adds visual depth without competing
+                # with overlaid title text.
+                replacement_parts.append(
+                    f'slide.addShape(pres.shapes.RECTANGLE, {{ '
+                    f'x: {x:.3f}, y: {y:.3f}, w: {w:.3f}, h: {h*0.45:.3f}, '
+                    f'fill: {{ color: "FFFFFF", transparency: 88 }}, '
+                    f'line: {{ color: "FFFFFF", width: 0 }} }});'
+                )
+
+            # ── 2. Tint overlay (uniform). Only emit if tint+opacity>0;
+            #       a 0-opacity tint is a no-op and just adds clutter.
+            if tint and tint_opacity > 0 and image_bytes:
+                replacement_parts.append(
+                    f'slide.addShape(pres.shapes.RECTANGLE, {{ '
+                    f'x: {x:.3f}, y: {y:.3f}, w: {w:.3f}, h: {h:.3f}, '
+                    f'fill: {{ color: "{tint}", transparency: {tint_opacity} }}, '
+                    f'line: {{ color: "{tint}", width: 0 }} }});'
+                )
+
+            # ── 3. Optional fade. Auto-positioned: `bottom` covers the
+            #       lower 45% of the photo area, fading from transparent
+            #       at the top of that band to ~mostly-opaque tint at the
+            #       slide bottom. `top` mirrors it. Keeps the centre of
+            #       the photo untouched so it still reads as a photo.
+            if image_bytes and fade_mode in ("top", "bottom") and tint:
+                fade_h = h * 0.45
+                fade_y = (y + h - fade_h) if fade_mode == "bottom" else y
+                # Direction picks which end is opaque (the text-side).
+                direction = "vertical-fade-bottom" if fade_mode == "bottom" else "vertical-fade-top"
+                # The fade re-uses GRADIENT's _build_gradient_rects so we
+                # get the same smooth 14-strip render.
+                fade_rects = _build_gradient_rects(
+                    from_color=tint, to_color=tint,
+                    direction=direction,
+                    x=x, y=fade_y, w=w, h=fade_h,
+                    steps=14,
+                    from_opacity=100,  # invisible at the photo edge
+                    to_opacity=10,     # nearly opaque at the slide edge
+                )
+                replacement_parts.extend(fade_rects)
+
+            replacement = "\n      ".join(replacement_parts)
+            code = code[:m.start()] + replacement + code[m.end():]
+
+        # Defensive cleanup: strip any LLM-emitted full-bleed RECTANGLE
+        # that lands AFTER the image (it would bury the photo).
+        # Pattern matches an `addShape(pres.shapes.RECTANGLE, { ... x: 0...
+        # w: 13... h: 7.x ... })` regardless of order of fields. We only
+        # remove rects whose bounding box is >= 90% of slide area, since
+        # the LLM might legitimately place a smaller decorative rect.
+        code = _strip_fullbleed_rects_after_image(code)
+        slide["code"] = code
+
+    return slide_codes
+
+
+def _strip_fullbleed_rects_after_image(code: str) -> str:
+    """Remove `addShape(pres.shapes.RECTANGLE, { ... })` calls whose bounding
+    box covers ~90%+ of the slide AND that appear AFTER the first
+    `slide.addImage(` call. Defensive guard: the LLM has a habit of
+    drawing a full-bleed brand-color rect to "dim" the photo even when
+    IMAGE_GEN's tint+fade already do that.
+
+    Uses a brace-balanced scanner instead of a regex because the shape
+    options contain nested objects (`fill: { color: ... }`) which a flat
+    regex can't match across.
+    """
+    import re
+
+    first_image = code.find("slide.addImage(")
+    if first_image == -1:
+        return code
+
+    SHAPE_HEAD = "slide.addShape(pres.shapes.RECTANGLE"
+    NUM_RE = re.compile(r"\b(x|y|w|h)\s*:\s*(-?\d+(?:\.\d+)?)")
+
+    removed = 0
+    out: list[str] = []
+    cursor = 0
+    pos = code.find(SHAPE_HEAD, first_image)
+    while pos != -1:
+        # Find the comma and opening `{` after the shape head.
+        brace_start = code.find("{", pos)
+        if brace_start == -1:
+            break
+        # Brace-balanced scan to find the matching closing `}`.
+        depth = 0
+        i = brace_start
+        while i < len(code):
+            ch = code[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        if depth != 0:
+            break
+        brace_end = i
+        # Walk past `)` and optional `;`.
+        end = brace_end + 1
+        while end < len(code) and code[end] in " \t\n)":
+            end += 1
+        if end < len(code) and code[end] == ";":
+            end += 1
+
+        body = code[brace_start + 1 : brace_end]
+        vals = {k: float(v) for k, v in NUM_RE.findall(body)}
+        x, y, w, h = vals.get("x"), vals.get("y"), vals.get("w"), vals.get("h")
+        next_pos = code.find(SHAPE_HEAD, end)
+
+        if (
+            x is not None and y is not None and w is not None and h is not None
+            and x <= 0.3 and y <= 0.3 and w * h >= 90
+        ):
+            out.append(code[cursor:pos])
+            cursor = end
+            removed += 1
+
+        pos = next_pos
+
+    if removed:
+        out.append(code[cursor:])
+        logger.info("stripped_fullbleed_rects_over_image", count=removed)
+        return "".join(out)
+    return code
 
 
 def _build_visual_context(state: PPTGenerationState) -> list[dict]:
@@ -289,14 +1215,51 @@ async def process_references(state: PPTGenerationState) -> dict:
     all_texts: list[str] = []
     all_visual_parts: list[dict] = []
 
+    IMAGE_SUFFIXES = {"png", "jpg", "jpeg", "webp", "gif", "svg"}
+
     for i, key in enumerate(ref_keys):
         try:
             suffix = key.rsplit(".", 1)[-1] if "." in key else "txt"
+            suffix_lower = suffix.lower()
+
+            # Image references: skip text extraction (there is none), attach
+            # them as multimodal vision parts so the planner + writer can SEE
+            # the user's reference images (brand swatches, mood boards,
+            # competitor screenshots, etc.).
+            if suffix_lower in IMAGE_SUFFIXES:
+                try:
+                    import base64
+                    img_bytes = s3.download_bytes(key)
+                    b64 = base64.b64encode(img_bytes).decode("ascii")
+                    mime = "svg+xml" if suffix_lower == "svg" else (
+                        "jpeg" if suffix_lower in ("jpg", "jpeg") else suffix_lower
+                    )
+                    all_visual_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/{mime};base64,{b64}",
+                            "detail": "high",
+                        },
+                    })
+                    all_texts.append(
+                        f"[Reference image: {key.rsplit('/', 1)[-1]} — see attached]"
+                    )
+                    logger.info("reference_image_attached", key=key, bytes=len(img_bytes))
+                except Exception as ie:
+                    logger.warn("reference_image_attach_failed", key=key, error=str(ie))
+                progress = 0.15 + (0.05 * (i + 1) / len(ref_keys))
+                await publisher.publish(
+                    "process_references",
+                    progress,
+                    f"Processed reference {i + 1}/{len(ref_keys)}",
+                )
+                continue
+
             text, _ = extractor.extract(key, suffix)
             all_texts.append(text)
 
             # For PPTX files: also create visual collages for the LLM
-            if suffix.lower() in ("pptx", "ppt"):
+            if suffix_lower in ("pptx", "ppt"):
                 try:
                     tmp_path = s3.download_to_temp(key, f".{suffix}")
                     slide_images = pptx_to_images(tmp_path, max_slides=16)
@@ -932,7 +1895,13 @@ async def slide_writer(state: PPTGenerationState) -> dict:
     """
     publisher = _get_publisher(state)
     is_creative = state.get("creative_mode", False)
-    use_diagram_images = state.get("use_diagram_images", False)
+    # Default ON: the KROKI skill is harmless when not used (the slide-writer
+    # only emits a marker if it decides a diagram fits, and the prompt now
+    # has explicit "when NOT to use" guidance). Defaulting to OFF was making
+    # the LLM produce empty slides whenever a user asked for "a mindmap" or
+    # "a sankey" — it had no way to know those existed.
+    use_diagram_images = state.get("use_diagram_images", True)
+    use_image_gen = state.get("use_image_gen", False)
     audience = state.get("audience_type", "general")
 
     mode_parts = []
@@ -940,8 +1909,16 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         mode_parts.append("Creative Mode")
     if use_diagram_images:
         mode_parts.append("Diagram Images")
+    if use_image_gen:
+        mode_parts.append("AI Images")
     mode_label = " + ".join(mode_parts) if mode_parts else "Standard Mode"
-    logger.info("slide_writer_modes", creative=is_creative, diagrams=use_diagram_images, audience=audience)
+    logger.info(
+        "slide_writer_modes",
+        creative=is_creative,
+        diagrams=use_diagram_images,
+        image_gen=use_image_gen,
+        audience=audience,
+    )
     await publisher.publish(
         "writing_slides", 0.7,
         f"Designing slides with {mode_label} for {audience} audience..."
@@ -1085,23 +2062,51 @@ async def slide_writer(state: PPTGenerationState) -> dict:
 
     logos_section = ""
     if brand_logos:
+        # Filter out the deck's own primary subject — if a brand name
+        # appears verbatim in the project title or the cover slide's
+        # outline title, treat it as the deck's subject and do NOT fetch
+        # a logo for it (the deck's typography already establishes that
+        # brand; a logo.dev fetch on a fictional/new product name returns
+        # a generic placeholder that gets watermarked across every slide).
+        subject_haystack = (
+            (state.get("project_name") or "") + " " +
+            (state.get("outline", [{}])[0].get("title", "") if state.get("outline") else "")
+        ).lower()
+        filtered: dict[str, str] = {}
+        skipped: list[str] = []
+        for name, url in brand_logos.items():
+            if name.lower() in subject_haystack:
+                skipped.append(name)
+                continue
+            filtered[name] = url
+        if skipped:
+            logger.info("logos_filtered_as_deck_subject", skipped=skipped)
+        brand_logos = filtered
+
+    if brand_logos:
         logos_lines = "\n".join(f'- "{name}": {url}' for name, url in brand_logos.items())
         logos_section = (
-            "\n\n## Available Brand Logos (OPTIONAL — use sparingly)\n"
-            "Logos are available for these brands but should ONLY be used when:\n"
-            "- The user EXPLICITLY asked for logos in their prompt\n"
-            "- There is a dedicated 'tool landscape' or 'tech stack' slide in the outline\n"
-            "- A slide's PRIMARY PURPOSE is to showcase specific tools/vendors\n\n"
-            "### LOGO RULES (CRITICAL):\n"
-            "- **CONTENT IS KING** — the message, data, and visual structure matter 10x more than logos\n"
-            "- **Maximum 1 slide** in the entire deck should be logo-heavy (tool landscape)\n"
-            "- **Maximum 3-4 logos per slide** — more than that creates visual clutter\n"
-            "- **NEVER let logos compete with content** — if a slide has important text, stats, or a diagram, do NOT add logos\n"
-            "- **NEVER add logos to title slides, stat slides, process flows, or comparison slides**\n"
-            "- If you DO use a logo, keep it small (w: 0.5, h: 0.4) next to the brand name text — "
-            "the TEXT NAME is more important than the icon\n"
-            "- Do NOT invent URLs — only use the ones below\n\n"
-            f"Available (use only when appropriate):\n{logos_lines}\n"
+            "\n\n## AVAILABLE THIRD-PARTY BRAND LOGOS\n"
+            "Logo URLs for THIRD-PARTY tools mentioned in the prompt/outline.\n"
+            "Place them WITH PURPOSE, not as decoration.\n\n"
+            "### WHERE TO USE LOGOS\n"
+            "- One dedicated 'integrations' or 'tech stack' slide → small grid of all logos\n"
+            "- Architecture diagrams → ONE logo beside each component box\n"
+            "- Comparison tables → row icon, left of each row\n\n"
+            "### SIZING\n"
+            "- Grid: w:1.0, h:0.7 each\n"
+            "- Beside a component box: w:0.5, h:0.4\n"
+            "- Row icon: w:0.35, h:0.25\n\n"
+            "### ❌ HARD RULES — DO NOT BREAK THESE\n"
+            "- The SAME logo MUST NOT appear on more than ONE slide. Putting one\n"
+            "  logo on every slide turns it into a watermark and the user has\n"
+            "  explicitly flagged that as broken.\n"
+            "- NO logo on the cover slide. The cover establishes the brand\n"
+            "  through typography and the IMAGE_GEN photo.\n"
+            "- NO logo on KPI / stat / divider slides.\n"
+            "- NO logo on every footer.\n"
+            "- Use EXACT URLs below — do NOT invent or guess.\n\n"
+            f"Logos available:\n{logos_lines}\n"
         )
 
     # Diagram section — inject Kroki skill when enabled
@@ -1212,6 +2217,26 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         sys_parts.append(logos_section)
     if use_diagram_images:
         sys_parts.append(diagram_section)
+    # IMAGE_GEN skill is gated by the user's `Images` toggle. When OFF,
+    # the LLM is explicitly told NOT to emit IMAGE_GEN markers (rather
+    # than silently leaving the skill out — that's how it was inventing
+    # `addKroki` and other helpers). When ON, the LLM is encouraged to
+    # use it for the cover + section dividers.
+    if use_image_gen:
+        sys_parts.append(IMAGE_GEN_SKILL_REFERENCE)
+    else:
+        sys_parts.append(
+            "\n## NO AI IMAGES THIS DECK\n"
+            "The user has DISABLED the AI Images toggle. You MUST NOT emit\n"
+            "any `// IMAGE_GEN:` markers. Build the cover and dividers from\n"
+            "native shapes only — solid brand-color full-bleed backgrounds,\n"
+            "typography, accent rules, and SmartArt-style shape grids.\n"
+            "Do NOT request photos. Do NOT reference IMAGE_GEN.\n"
+        )
+    # NB: GRADIENT_SKILL_REFERENCE is intentionally NOT injected — the LLM
+    # kept misusing it (full-bleed gradients on top of photos, duplicate
+    # markers, etc.). The implementation lingers so IMAGE_GEN can call
+    # `_build_gradient_rects` internally for its `fade=` option.
 
     # ── Step 3 (color) is conditional on whether a brand palette is locked ──
     if has_locked_palette:
@@ -1413,6 +2438,39 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         "\n# DESIGNER'S MINDSET — APPLY TO EVERY SLIDE\n\n"
 
         f"## Your Audience\n{audience_brief}\n\n"
+
+        "## DECK CONSISTENCY (READ FIRST — applies to EVERY slide)\n"
+        "This deck must look like a single magazine-quality artifact, not\n"
+        "a stack of unrelated slides. Follow these rules on every single\n"
+        "slide:\n\n"
+        "1. **Full-bleed branded backgrounds, never bare white.**\n"
+        "   - Cover + section dividers → photo (IMAGE_GEN when allowed)\n"
+        "     OR a solid `slide.background = { color: PRIMARY }` plus a\n"
+        "     decorative accent shape on one side.\n"
+        "   - Content slides → solid `slide.background = { color: SURFACE }`\n"
+        "     (the warm-white from the locked palette, NOT raw FFFFFF), with\n"
+        "     a brand-color sidebar strip (0.5in wide on the left) OR a\n"
+        "     top accent bar (0.15in tall) in PRIMARY across the slide.\n"
+        "   - Never leave a slide on the default white. Every slide carries\n"
+        "     at least ONE consistent branded element.\n"
+        "2. **Same palette, every slide.**\n"
+        "   Locked palette colors above are the ONLY hex codes you use.\n"
+        "   Do not invent shades. Do not interpolate. Stick to the 5 roles.\n"
+        "3. **Same type system, every slide.**\n"
+        "   Title size, weight, color, position must repeat across slides.\n"
+        "   Body type the same. Footer same place every slide.\n"
+        "4. **Visuals everywhere, native-shape preferred.**\n"
+        "   No slide is JUST a title + paragraph. Every content slide has\n"
+        "   either: stat cards, a 2-3 column shape grid, a chevron flow,\n"
+        "   a 2x2 matrix of cards, a SmartArt hub-and-spoke, an addChart,\n"
+        "   a table, OR a Kroki diagram. Use native shapes (addShape +\n"
+        "   addText) for hub-and-spoke / process / matrix — they never\n"
+        "   fail to render. Reach for Kroki only for real charts (vegalite)\n"
+        "   sankey-beta, gantt, or ER.\n"
+        "5. **Repeat motifs.**\n"
+        "   Pick ONE decorative motif (a thin accent bar, a corner triangle,\n"
+        "   a circular dot, a numbered eyebrow tag) and use it on every\n"
+        "   content slide so the deck feels like a system.\n\n"
 
         + step0_color_analysis +
 
@@ -1685,9 +2743,73 @@ async def slide_writer(state: PPTGenerationState) -> dict:
         logger.error("slide_writer_no_slides_parsed", raw_length=len(raw_content), raw_sample=raw_content[:500] if raw_content else "EMPTY")
         raise Exception(f"Failed to parse slide code from LLM response (length={len(raw_content)})")
 
-    # Post-process: replace KROKI_DIAGRAM markers with rendered image URLs
+    # Pre-process: the LLM sometimes embeds the KROKI_DIAGRAM marker as a
+    # STRING inside `slide.addText(...)` instead of as a JS comment. It
+    # also sometimes invents a non-existent helper `addKroki(slide, type,
+    # source, {...})`. Rescue both by rewriting them back into proper
+    # comment markers before the real KROKI scanner runs.
+    slide_codes = _rescue_addkroki_calls(slide_codes)
+    slide_codes = _rescue_kroki_in_addtext(slide_codes)
+
+    # Post-process: replace KROKI_DIAGRAM markers with rendered image URLs.
     if use_diagram_images:
         slide_codes = await _process_kroki_diagrams(slide_codes, state.get("job_id", ""))
+
+    # Post-process: replace IMAGE_GEN markers with Gemini-generated photos +
+    # a brand-color tint overlay. Runs even when use_diagram_images=false —
+    # image generation is a separate capability from Kroki diagrams.
+    #
+    # Key resolution chain:
+    #   1. The currently-selected primary model's `api_key`, IF that model is
+    #      a Google one (cheap reuse — same key works for image gen).
+    #   2. The worker's `settings.google_api_key` (loaded from .env at boot).
+    #   3. The process environment `GOOGLE_API_KEY`.
+    # Without (2), users who pick Anthropic/OpenAI as their primary LLM but
+    # have a Google key for image gen would silently get the flat-color
+    # fallback. Logged so we can tell at a glance which fallback fired.
+    model_cfg = state.get("selected_model", {})
+    primary_key = model_cfg.get("api_key") or ""
+    if model_cfg.get("provider") == "google" and primary_key:
+        gemini_key = primary_key
+        gemini_key_source = "primary_model"
+    elif settings.google_api_key:
+        gemini_key = settings.google_api_key
+        gemini_key_source = "settings.env"
+    else:
+        import os as _os
+        gemini_key = _os.environ.get("GOOGLE_API_KEY", "") or None
+        gemini_key_source = "os.environ" if gemini_key else "none"
+    logger.info("image_gen_key_resolved", source=gemini_key_source, has_key=bool(gemini_key))
+    if not use_image_gen:
+        # Toggle is off — strip any stray IMAGE_GEN markers the LLM
+        # emitted despite the negative instruction. We don't want a half-
+        # rendered photo to slip through.
+        import re as _re
+        stripped = 0
+        for slide in slide_codes:
+            code = slide.get("code", "")
+            if "IMAGE_GEN" not in code:
+                continue
+            slide["code"] = _re.sub(r'//\s*IMAGE_GEN:.+?(?=\n|$)', '', code)
+            stripped += 1
+        if stripped:
+            logger.info("image_gen_markers_stripped_by_toggle", slides=stripped)
+    elif any("IMAGE_GEN" in (s.get("code") or "") for s in slide_codes):
+        await publisher.publish("writing_slides", 0.80, "Generating hero images via Gemini…")
+        slide_codes = await _process_generated_images(
+            slide_codes, state.get("job_id", ""), api_key=gemini_key or None
+        )
+
+    # Post-process: expand GRADIENT markers into stacked-rect pptxgenjs code.
+    # Must run AFTER image gen so fade overlays end up above the photo in
+    # the z-order. Pure-Python, no network — cheap to run unconditionally.
+    if any("GRADIENT:" in (s.get("code") or "") for s in slide_codes):
+        slide_codes = await _process_gradient_markers(slide_codes)
+
+    # Defensive: strip duplicate `img.logo.dev/<domain>` calls. The LLM has
+    # a habit of using one logo as a watermark across multiple slides;
+    # this enforces "each logo on at most one slide".
+    slide_codes = _dedupe_logo_images(slide_codes)
 
     await publisher.publish("writing_slides", 0.85, f"Designed {len(slide_codes)} slides with full visual control")
     await publisher.close()

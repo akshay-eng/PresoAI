@@ -27,6 +27,7 @@ import {
   Eye,
   PenTool,
   BarChart3,
+  Image as ImageIcon,
   Square,
   Copy as CopyIcon,
   Pencil,
@@ -97,6 +98,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const {
     setJobId, isGenerating, jobId, phase, progress, message, outline, error,
     errorDetails, updateProgress, presentationId: completedPresentationId, hydrate,
+    currentSlideIndex, totalSlidesBuilding,
   } = useProjectGeneration(id);
 
   const addMessage = useChatStore((s) => s.addMessage);
@@ -287,6 +289,12 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   const [engine, setEngine] = useState<"claude-code" | "preso-plus" | "node-worker" | "preso-pro">("node-worker");
   const [creativeMode, setCreativeMode] = useState(false);
   const [useDiagramImages, setUseDiagramImages] = useState(false);
+  // When ON, the slide-writer is encouraged to emit IMAGE_GEN markers on
+  // the cover + section dividers + 1-2 hero content slides so the deck
+  // looks like a magazine spread. When OFF, no IMAGE_GEN markers at all
+  // — slides rely on shapes/cards/typography for visual interest.
+  // Default OFF: image gen is an explicit opt-in (cost + sometimes off-brand).
+  const [useImageGen, setUseImageGen] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -326,17 +334,27 @@ export default function ProjectPage({ params }: ProjectPageProps) {
   } | null;
 
   // When a new generation/edit completes a fresh presentation lands at the
-  // top of `p.presentations`. Snap the version dropdown to that new latest
-  // so the user sees the freshest deck — unless they had explicitly picked
-  // an older version that still exists, in which case respect their choice.
+  // top of `p.presentations`. The OLD logic only snapped when the current
+  // selection vanished — so after an edit (which keeps the prior version
+  // in the list), the preview stayed pinned on the OLD deck and the user
+  // saw "edit complete" but the preview pane didn't refresh.
+  //
+  // New logic: whenever `latestRenderedId` changes (i.e. a brand new
+  // presentation just landed), snap to it. The user can manually pick an
+  // older version via the version dropdown — that selection is preserved
+  // until the NEXT new presentation arrives.
   const latestRenderedId = p?.presentations?.[0]?.id;
+  const prevLatestRef = useRef<string | null>(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!latestRenderedId) return;
+    const isNewerPresentation =
+      prevLatestRef.current !== null && prevLatestRef.current !== latestRenderedId;
     const stillExists = !!p?.presentations?.find((pp) => pp.id === latestPresentationId);
-    if (!latestPresentationId || !stillExists) {
+    if (!latestPresentationId || !stillExists || isNewerPresentation) {
       setLatestPresentationId(latestRenderedId);
     }
+    prevLatestRef.current = latestRenderedId;
   }, [latestRenderedId]);
 
   // Load models list for auto-select
@@ -414,6 +432,9 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       const urlAudience = searchParams.get("audienceType");
       if (urlAudience) setAudienceType(urlAudience);
       if (searchParams.get("useDiagramImages") === "1") setUseDiagramImages(true);
+      // Images toggle defaults ON; honour an explicit "0" from the URL.
+      if (searchParams.get("useImageGen") === "0") setUseImageGen(false);
+      if (searchParams.get("useImageGen") === "1") setUseImageGen(true);
 
       // Auto-generate if coming from dashboard
       if (shouldAutoGenerate && p.prompt && modelFromUrl && !autoGenerateHandled) {
@@ -477,6 +498,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         engine,
         creativeMode,
         useDiagramImages,
+        useImageGen,
         chatImageKeys: chatMessages
           .filter((m) => m.metadata?.imageKeys)
           .flatMap((m) => (m.metadata!.imageKeys as string[]) || []),
@@ -1624,6 +1646,19 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         <BarChart3 className="h-3 w-3" />
                         Diagrams
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setUseImageGen(!useImageGen)}
+                        className={`h-7 rounded-md px-2 text-[11px] transition-colors flex items-center gap-1 ${
+                          useImageGen
+                            ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/30"
+                            : "border border-border bg-secondary/50 text-muted-foreground hover:text-foreground"
+                        }`}
+                        title="AI Images: generates photo-realistic backgrounds for the cover and section dividers via Gemini Nano Banana"
+                      >
+                        <ImageIcon className="h-3 w-3" />
+                        Images
+                      </button>
                     </div>
                     <div className="flex items-center gap-2">
                       {prompt.length > 4500 && (
@@ -1725,6 +1760,8 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                       phase={phase}
                       progress={progress}
                       message={message}
+                      currentSlideIndex={currentSlideIndex}
+                      totalSlidesBuilding={totalSlidesBuilding}
                     />
                   )}
 

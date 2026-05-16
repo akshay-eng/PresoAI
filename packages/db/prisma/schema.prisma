@@ -64,6 +64,10 @@ model User {
 // free-text field. The admin dashboard renders these as cards.
 model SupportTicket {
   id          String   @id @default(cuid())
+  // Human-readable ITSM-style ticket number — "SUP-NNNNNN", monotonically
+  // increasing via a Postgres sequence. Surfaced to the user + admin so
+  // they can quote it ("I'm stuck on SUP-000042") instead of a 24-char cuid.
+  ticketNumber String  @unique
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -507,6 +511,17 @@ model StyleProfile {
   description       String?
   userId            String?  // null for global/default profiles offered to every user
   isGlobal          Boolean  @default(false) // true for app-level defaults (IBM, ICICI, Wipro)
+  // Catalog category — IT, BFSI, Education, etc. Drives the filter chips on
+  // /catalog and helps users discover styles relevant to their use case.
+  category          String?  // it | bfsi | education | consulting | healthcare | retail | manufacturing | nonprofit | other
+  // When `isPublic` is true, this profile shows up on /catalog for ALL
+  // users to discover + clone. Independent of isGlobal: global = shipped
+  // by us; public = user-shared. Both surfaces in the catalog.
+  isPublic          Boolean  @default(false)
+  // If this profile was cloned from a catalog entry, this points at the
+  // original — lets us show "based on BITS Pilani" badges + count clones
+  // for analytics.
+  clonedFromId      String?
   status            String   @default("pending") // pending, analyzing, ready, failed
 
   // Structured theme data (merged from all source files)
@@ -526,9 +541,12 @@ model StyleProfile {
   user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   sourceFiles       StyleProfileSource[]
   projects          Project[]
+  clonedFrom        StyleProfile?      @relation("StyleClone", fields: [clonedFromId], references: [id], onDelete: SetNull)
+  clones            StyleProfile[]     @relation("StyleClone")
 
   @@index([userId])
   @@index([isGlobal])
+  @@index([isPublic, category, status])
   @@map("style_profiles")
 }
 
