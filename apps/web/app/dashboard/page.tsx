@@ -44,6 +44,19 @@ export default function DashboardPage() {
   // doesn't sneak Gemini API spend on every quick prompt.
   const [useImageGen, setUseImageGen] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
+  // Dismissible "recommended models" banner on the hero. We persist the
+  // dismissal in localStorage so it doesn't keep coming back on every
+  // dashboard visit. Shown only on the first session by default.
+  const [showRecModels, setShowRecModels] = useState(true);
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem("dismissedRecModels") === "1") {
+      setShowRecModels(false);
+    }
+  }, []);
+  const dismissRecModels = () => {
+    setShowRecModels(false);
+    if (typeof window !== "undefined") localStorage.setItem("dismissedRecModels", "1");
+  };
   const [showCreateStyle, setShowCreateStyle] = useState(false);
   // Catalog metadata for new user-created styles. `category` drives the
   // filter chips on /catalog; `isPublic` flips the profile so it shows up
@@ -392,6 +405,45 @@ export default function DashboardPage() {
         >
           <LottieAnimation src="/animations/presentation.json" className="w-36 h-36 mx-auto -mb-2" />
           <h1 className="text-3xl font-bold tracking-tight">What will you present today?</h1>
+
+          {/* Recommended-models hint banner (dismissible, persisted in localStorage). */}
+          <AnimatePresence>
+            {showRecModels && (
+              <motion.div
+                key="rec-models"
+                initial={{ opacity: 0, y: -6, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: "auto" }}
+                exit={{ opacity: 0, y: -6, height: 0 }}
+                transition={{ duration: 0.25, ease }}
+                className="mt-4 mx-auto max-w-xl"
+              >
+                <div className="relative rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3.5 py-2.5 text-left">
+                  <button
+                    type="button"
+                    onClick={dismissRecModels}
+                    className="absolute top-1.5 right-1.5 p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Dismiss"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  <div className="flex items-start gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                    <div className="text-[11px] leading-relaxed pr-4">
+                      <span className="font-semibold text-foreground">Recommended models for best decks:</span>{" "}
+                      <span className="text-muted-foreground">
+                        <span className="text-foreground font-medium">Gemini 3.1 Pro</span> for richest layouts and longest context,{" "}
+                        <span className="text-foreground font-medium">Gemini 2.5 Pro</span> for the best speed/quality balance,{" "}
+                        <span className="text-foreground font-medium">Claude Opus 4.7</span> when copy precision matters most.
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        Free tier: 6 decks per 8h — add your own key in Settings for unlimited.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <form onSubmit={handleSubmit} className="mt-8 relative">
             <div className="rounded-xl border border-border/60 bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-border">

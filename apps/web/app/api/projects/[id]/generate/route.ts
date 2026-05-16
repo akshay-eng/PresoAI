@@ -60,7 +60,7 @@ export async function POST(
 
       if (!freeTier) {
         freeTier = await prisma.freeTierSession.create({
-          data: { userId: session.user.id, generationsUsed: 0, maxGenerations: 1, windowHours: 8 },
+          data: { userId: session.user.id, generationsUsed: 0, maxGenerations: 6, windowHours: 8 },
         });
       }
 

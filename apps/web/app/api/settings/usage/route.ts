@@ -21,7 +21,7 @@ export async function GET() {
 
     if (!freeTier) {
       freeTier = await prisma.freeTierSession.create({
-        data: { userId, generationsUsed: 0, maxGenerations: 1, windowHours: 8 },
+        data: { userId, generationsUsed: 0, maxGenerations: 6, windowHours: 8 },
       });
     }
 

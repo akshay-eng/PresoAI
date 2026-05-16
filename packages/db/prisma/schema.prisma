@@ -282,12 +282,15 @@ model UsageRecord {
   @@map("usage_records")
 }
 
-// Free tier session tracking — resets every 8 hours
+// Free tier session tracking — resets every 8 hours.
+// `maxGenerations` defaults to 6: enough for users to actually try the
+// product without having to add their own API key, but capped so we
+// aren't bankrolling unlimited runs on borrowed Gemini keys.
 model FreeTierSession {
   id              String   @id @default(cuid())
   userId          String   @unique
   generationsUsed Int      @default(0)
-  maxGenerations  Int      @default(1)
+  maxGenerations  Int      @default(6)
   windowStart     DateTime @default(now())
   windowHours     Int      @default(8)
   updatedAt       DateTime @updatedAt
