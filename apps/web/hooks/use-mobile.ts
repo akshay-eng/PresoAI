@@ -1,5 +1,6 @@
 "use client";
 
+// Detects mobile viewport using a matchMedia listener.
 import { useEffect, useState } from "react";
 
 export function useIsMobile(breakpoint = 768): boolean {
