@@ -140,12 +140,12 @@ export function DownloadMenu({
         <DropdownMenuLabel className="text-xs text-muted-foreground">Open in</DropdownMenuLabel>
 
         <DropdownMenuItem
-          onClick={openInCanva}
-          disabled={isLoading}
-          className="cursor-pointer"
+          disabled
+          className="cursor-not-allowed opacity-60"
         >
           <ExternalLink className="text-purple-400" />
-          Edit in Canva
+          <span className="flex-1">Edit in Canva</span>
+          <span className="text-[10px] bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-medium">Soon</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={exportToGoogleSlides}

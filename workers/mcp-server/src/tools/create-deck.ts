@@ -21,13 +21,15 @@ const inputSchema = z.object({
   audienceType: z.enum(["executive", "technical", "general", "marketing"])
     .optional()
     .describe("Audience type. Tunes density, tone, and visual style. Default: general."),
-  engine: z.enum(["preso-pro", "node-worker", "claude-code", "preso-plus"])
+  engine: z.enum(["preso-pro", "node-worker", "preso-plus"])
     .optional()
-    .describe("Generation engine. Default: node-worker (Preso Elite — best mix of quality and speed). `preso-plus` runs Claude Code via an open-source Anthropic→Gemini proxy; no Anthropic key required."),
+    .describe("Generation engine. Default: node-worker (Preso Elite — best mix of quality and speed). `preso-plus` is an agentic engine for heavy research/synthesis work (coming soon)."),
   creativeMode: z.boolean().optional()
     .describe("When true, pushes the agent toward unconventional layouts (pyramids, hub-and-spoke, comparison diptychs). Default: false."),
   useDiagramImages: z.boolean().optional()
     .describe("Render complex diagrams (sequence flows, architecture) as images via Kroki. Higher fidelity but the slides become non-editable. Default: false."),
+  useImageGen: z.boolean().optional()
+    .describe("Enable AI-generated photo backgrounds on cover and section divider slides. Default: false."),
   styleProfileId: z.string().optional()
     .describe("ID of a brand style profile (use `list_style_profiles` to enumerate)."),
   referenceFileKeys: z.array(z.string()).max(10).optional()

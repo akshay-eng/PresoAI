@@ -87,9 +87,9 @@ export function buildOpenApiSpec(baseUrl: string) {
             audienceType: { type: "string", enum: ["executive", "technical", "general", "marketing"], default: "general" },
             engine: {
               type: "string",
-              enum: ["preso-pro", "node-worker", "claude-code", "preso-plus"],
+              enum: ["preso-pro", "node-worker", "preso-plus"],
               default: "node-worker",
-              description: "Generation engine. `preso-pro` uses the Python composer with native SmartArt; `node-worker` (Preso Elite) uses pptxgenjs with the strongest prompt; `claude-code` runs Claude Code CLI against Anthropic; `preso-plus` runs Claude Code CLI through an open-source Anthropic→Gemini proxy (no Anthropic key needed).",
+              description: "Generation engine. `preso-pro` uses the Python composer with native SmartArt; `node-worker` (Preso Elite) uses pptxgenjs with the strongest prompt; `preso-plus` is an agentic engine for the heaviest research/synthesis work (coming soon).",
             },
             creativeMode: { type: "boolean", default: false, description: "Pushes the agent to use unconventional layouts (pyramids, hub-and-spoke, comparison diptychs)." },
             useDiagramImages: { type: "boolean", default: false, description: "Render complex diagrams (sequence, architecture, ER) as images via Kroki." },

@@ -160,11 +160,7 @@ export default function DocsPage() {
             <EngineCard
               name="Preso Plus"
               tag="Coming soon"
-              body="Claude Code agent driving Gemini 2.5 Pro for the heaviest research/synthesis work. Slowest but most thorough. Useful for board decks where you want hours of research compressed into 30 minutes."
-            />
-            <EngineCard
-              name="Preso Code"
-              body="Claude Code agent writing pptxgenjs from scratch with full freedom. Higher variance — sometimes spectacular, sometimes off-piste. Worth trying when you want unconventional designs."
+              body="Agentic engine driving Gemini 2.5 Pro for the heaviest research/synthesis work. Slowest but most thorough. Useful for board decks where you want hours of research compressed into 30 minutes."
             />
           </div>
         </section>
@@ -331,7 +327,7 @@ export default function DocsPage() {
             agent. Type the change you want — &quot;make slide 3 a bar chart
             instead,&quot; &quot;change the cover title,&quot; &quot;add a
             thank-you slide&quot; — and Preso patches just the affected slides.
-            It uses the same Claude-Code-style edit pattern: locate, change,
+            It uses an intelligent edit pattern: locate, change,
             preserve everything else.
           </p>
           <p className="text-sm text-muted-foreground italic mt-2">
@@ -532,7 +528,7 @@ X-RateLimit-Remaining-Hour: 412`} />
               { name: "prompt",            type: "string",    req: true,  desc: "What the deck is about. Audience hints, ask, and tone all go here." },
               { name: "numSlides",         type: "integer",   req: true,  desc: "1–15." },
               { name: "audienceType",      type: "enum",      req: false, desc: "executive | technical | general | marketing. Default: general." },
-              { name: "engine",            type: "enum",      req: false, desc: "preso-pro | node-worker | claude-code | preso-plus. Default: node-worker (Preso Elite)." },
+              { name: "engine",            type: "enum",      req: false, desc: "preso-pro | node-worker | preso-plus. Default: node-worker (Preso Elite)." },
               { name: "creativeMode",      type: "boolean",   req: false, desc: "Pushes the agent toward unconventional layouts. Default: false." },
               { name: "useDiagramImages",  type: "boolean",   req: false, desc: "Render complex diagrams as images via Kroki. Default: false." },
               { name: "useImageGen",       type: "boolean",   req: false, desc: "Allow Gemini Nano Banana photo backgrounds on cover + section dividers. Default: false." },

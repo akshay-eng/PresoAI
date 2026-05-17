@@ -8,9 +8,10 @@
  *   prompt              string  required  — what the deck is about
  *   numSlides           int     required  — 1-15
  *   audienceType        enum    optional  — executive | technical | general | marketing  (default: general)
- *   engine              enum    optional  — preso-pro | node-worker | claude-code | preso-plus  (default: node-worker)
+ *   engine              enum    optional  — preso-pro | node-worker | preso-plus  (default: node-worker)
  *   creativeMode        bool    optional
  *   useDiagramImages    bool    optional
+ *   useImageGen         bool    optional  — enable AI photo backgrounds
  *   styleProfileId      string  optional
  *   referenceFileKeys   string[] optional — s3 keys from POST /v1/files
  *   chatImageKeys       string[] optional — s3 keys for vision input
@@ -98,6 +99,7 @@ const createDeckSchema = z.object({
   engine: z.enum(["claude-code", "preso-plus", "node-worker", "preso-pro"]).default("node-worker"),
   creativeMode: z.boolean().default(false),
   useDiagramImages: z.boolean().default(false),
+  useImageGen: z.boolean().default(false),
   styleProfileId: z.string().optional(),
   referenceFileKeys: z.array(z.string().min(1).max(500)).max(10).optional(),
   chatImageKeys: z.array(z.string().min(1).max(500)).max(10).optional(),
@@ -329,6 +331,7 @@ export const POST = withApiAuth(
       engine: parsed.data.engine,
       creativeMode: parsed.data.creativeMode,
       useDiagramImages: parsed.data.useDiagramImages,
+      useImageGen: parsed.data.useImageGen,
       chatImageKeys: parsed.data.chatImageKeys || [],
     };
 

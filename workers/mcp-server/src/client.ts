@@ -49,9 +49,10 @@ export interface CreateDeckArgs {
   prompt: string;
   numSlides: number;
   audienceType?: "executive" | "technical" | "general" | "marketing";
-  engine?: "preso-pro" | "node-worker" | "claude-code" | "preso-plus";
+  engine?: "preso-pro" | "node-worker" | "preso-plus";
   creativeMode?: boolean;
   useDiagramImages?: boolean;
+  useImageGen?: boolean;
   styleProfileId?: string;
   referenceFileKeys?: string[];
   chatImageKeys?: string[];
