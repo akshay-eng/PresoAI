@@ -17,60 +17,53 @@ async function uploadToCanva(
 
   if (!presentation?.s3Key) throw new Error("Presentation not found");
 
-  // Download PPTX from S3
+  // Step 1: Download PPTX from S3
   const downloadUrl = await getPresignedDownloadUrl(presentation.s3Key);
   const pptxRes = await fetch(downloadUrl);
   if (!pptxRes.ok) throw new Error("Failed to download PPTX from storage");
-  const pptxBytes = new Uint8Array(await pptxRes.arrayBuffer());
+  const pptxBytes = await pptxRes.arrayBuffer();
 
-  // Canva Connect API asset upload: raw binary + Asset-Upload-Metadata header
-  const fileName = `${presentation.title || "presentation"}.pptx`;
-  const metadata = Buffer.from(JSON.stringify({ name_base: fileName })).toString("base64");
-
-  const uploadRes = await fetch("https://api.canva.com/rest/v1/asset-uploads", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      "Asset-Upload-Metadata": metadata,
-    },
-    body: pptxBytes,
-  });
-
-  if (!uploadRes.ok) {
-    const txt = await uploadRes.text();
-    throw new Error(`Canva asset upload failed: ${txt}`);
-  }
-
-  const uploadResult = await uploadRes.json();
-  const assetJobId = uploadResult.job?.id || uploadResult.id;
-
-  // Create import job
-  const importRes = await fetch("https://api.canva.com/rest/v1/imports", {
+  // Step 2: Create Canva import job → get signed upload URL
+  const title = presentation.title || "SlideForge Presentation";
+  const createRes = await fetch("https://api.canva.com/rest/v1/imports", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      import_source: { type: "asset_upload", asset_upload_job_id: assetJobId },
-      title: presentation.title || "SlideForge Presentation",
-    }),
+    body: JSON.stringify({ title }),
   });
 
-  if (!importRes.ok) {
-    const txt = await importRes.text();
-    throw new Error(`Canva import failed: ${txt}`);
+  if (!createRes.ok) {
+    const txt = await createRes.text();
+    throw new Error(`Failed to create Canva import: ${txt}`);
   }
 
-  const importResult = await importRes.json();
-  const importJobId = importResult.job?.id || importResult.id;
+  const createData = await createRes.json();
+  const importJobId = createData.job?.id;
+  const uploadUrl = createData.job?.urls?.upload_url;
 
-  // Poll until complete (max ~20 s)
+  if (!uploadUrl) throw new Error("No upload URL returned from Canva");
+
+  // Step 3: PUT the PPTX to the signed URL
+  const putRes = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    },
+    body: pptxBytes,
+  });
+
+  if (!putRes.ok) {
+    const txt = await putRes.text();
+    throw new Error(`Upload to Canva storage failed: ${txt}`);
+  }
+
+  // Step 4: Poll for completion (max ~30 s)
   let editUrl: string | null = null;
   let designId: string | null = null;
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     await new Promise((r) => setTimeout(r, 2000));
 
     const statusRes = await fetch(
@@ -80,13 +73,12 @@ async function uploadToCanva(
     if (!statusRes.ok) continue;
 
     const s = await statusRes.json();
-    const status = s.job?.status || s.status;
+    const status = s.job?.status;
 
-    if (status === "completed" || status === "success") {
-      designId = s.job?.result?.design?.id || s.design?.id;
+    if (status === "success") {
+      designId = s.job?.result?.design?.id;
       editUrl =
         s.job?.result?.design?.urls?.edit_url ||
-        s.design?.urls?.edit_url ||
         (designId ? `https://www.canva.com/design/${designId}/edit` : null);
       break;
     }

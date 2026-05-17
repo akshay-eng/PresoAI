@@ -6,9 +6,10 @@ import { logger } from "@/lib/logger";
 /**
  * POST /api/integrations/canva/do-upload
  *
- * Called by the inline HTML loading page returned by the OAuth callback.
- * Receives the Canva access token directly in the request body (base64url encoded)
- * so we avoid cookie SameSite / redirect ordering issues entirely.
+ * Correct Canva Connect API import flow for PPTX files:
+ *   1. POST /rest/v1/imports  → get a signed upload_url + jobId
+ *   2. PUT {upload_url}       → upload raw PPTX binary
+ *   3. Poll GET /rest/v1/imports/{jobId} → wait for edit URL
  */
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +19,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing parameters" }, { status: 400 });
     }
 
-    // Decode the base64url token passed from the callback HTML page
     const accessToken = Buffer.from(t, "base64url").toString();
     if (!accessToken) {
       return NextResponse.json({ error: "Invalid token" }, { status: 400 });
@@ -33,92 +33,93 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Presentation not found" }, { status: 404 });
     }
 
-    // Download PPTX from S3
+    // Step 1: Download PPTX from S3
     const downloadUrl = await getPresignedDownloadUrl(presentation.s3Key);
     const pptxRes = await fetch(downloadUrl);
     if (!pptxRes.ok) throw new Error("Failed to download PPTX from storage");
-    const pptxBytes = new Uint8Array(await pptxRes.arrayBuffer());
+    const pptxBytes = await pptxRes.arrayBuffer();
 
-    logger.info({ size: pptxBytes.length, presentationId }, "PPTX downloaded for Canva");
+    logger.info({ size: pptxBytes.byteLength, presentationId }, "PPTX downloaded for Canva import");
 
-    // Canva Connect API asset upload:
-    // PUT raw binary with Asset-Upload-Metadata header (base64-encoded JSON name)
-    const fileName = `${presentation.title || "presentation"}.pptx`;
-    const metadata = Buffer.from(JSON.stringify({ name_base: fileName })).toString("base64");
-
-    const uploadRes = await fetch("https://api.canva.com/rest/v1/asset-uploads", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "Asset-Upload-Metadata": metadata,
-      },
-      body: pptxBytes,
-    });
-
-    if (!uploadRes.ok) {
-      const txt = await uploadRes.text();
-      logger.error({ status: uploadRes.status, body: txt }, "Canva asset upload failed");
-      return NextResponse.json({ error: `Canva upload failed: ${txt}` }, { status: 502 });
-    }
-
-    const uploadResult = await uploadRes.json();
-    const assetJobId = uploadResult.job?.id || uploadResult.id;
-    logger.info({ assetJobId }, "Canva asset upload job started");
-
-    // Create import job
-    const importRes = await fetch("https://api.canva.com/rest/v1/imports", {
+    // Step 2: Create the import job — Canva returns a signed upload URL
+    const title = presentation.title || "SlideForge Presentation";
+    const createRes = await fetch("https://api.canva.com/rest/v1/imports", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        import_source: { type: "asset_upload", asset_upload_job_id: assetJobId },
-        title: presentation.title || "SlideForge Presentation",
-      }),
+      body: JSON.stringify({ title }),
     });
 
-    if (!importRes.ok) {
-      const txt = await importRes.text();
-      logger.error({ body: txt }, "Canva import create failed");
-      return NextResponse.json({ error: `Canva import failed: ${txt}` }, { status: 502 });
+    if (!createRes.ok) {
+      const txt = await createRes.text();
+      logger.error({ status: createRes.status, body: txt }, "Canva import create failed");
+      return NextResponse.json({ error: `Failed to create Canva import: ${txt}` }, { status: 502 });
     }
 
-    const importResult = await importRes.json();
-    const importJobId = importResult.job?.id || importResult.id;
+    const createData = await createRes.json();
+    const jobId = createData.job?.id;
+    const uploadUrl = createData.job?.urls?.upload_url;
 
-    // Poll for completion (max ~20 s)
+    logger.info({ jobId, uploadUrl: !!uploadUrl }, "Canva import job created");
+
+    if (!uploadUrl) {
+      logger.error({ createData }, "No upload_url in Canva response");
+      return NextResponse.json({ error: "No upload URL returned from Canva" }, { status: 502 });
+    }
+
+    // Step 3: PUT the PPTX binary to the signed upload URL
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      },
+      body: pptxBytes,
+    });
+
+    if (!putRes.ok) {
+      const txt = await putRes.text();
+      logger.error({ status: putRes.status, body: txt }, "Canva upload PUT failed");
+      return NextResponse.json({ error: `Upload to Canva failed: ${txt}` }, { status: 502 });
+    }
+
+    logger.info({ jobId }, "PPTX uploaded to Canva, polling for completion");
+
+    // Step 4: Poll for import completion (max ~30 s)
     let editUrl: string | null = null;
     let designId: string | null = null;
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 2000));
 
-      const statusRes = await fetch(
-        `https://api.canva.com/rest/v1/imports/${importJobId}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
+      const statusRes = await fetch(`https://api.canva.com/rest/v1/imports/${jobId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
       if (!statusRes.ok) continue;
 
       const s = await statusRes.json();
-      const status = s.job?.status || s.status;
+      const status = s.job?.status;
 
-      if (status === "completed" || status === "success") {
-        designId = s.job?.result?.design?.id || s.design?.id;
+      logger.info({ jobId, status, i }, "Canva import poll");
+
+      if (status === "success") {
+        designId = s.job?.result?.design?.id;
         editUrl =
           s.job?.result?.design?.urls?.edit_url ||
-          s.design?.urls?.edit_url ||
           (designId ? `https://www.canva.com/design/${designId}/edit` : null);
         break;
       }
       if (status === "failed") {
-        return NextResponse.json({ error: "Canva import job failed" }, { status: 502 });
+        const reason = JSON.stringify(s.job?.error || s);
+        return NextResponse.json({ error: `Canva import failed: ${reason}` }, { status: 502 });
       }
     }
 
-    if (!editUrl && designId) editUrl = `https://www.canva.com/design/${designId}/edit`;
-    if (!editUrl) return NextResponse.json({ error: "Canva import timed out" }, { status: 504 });
+    if (!editUrl) {
+      return NextResponse.json({ error: "Canva import timed out — try again" }, { status: 504 });
+    }
 
     if (designId) {
       await prisma.presentation.update({
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
     logger.info({ designId, editUrl }, "Canva design ready");
     return NextResponse.json({ editUrl });
   } catch (err) {
-    logger.error({ error: (err as Error).message }, "Canva do-upload failed");
+    logger.error({ error: (err as Error).message }, "Canva do-upload error");
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
 }
