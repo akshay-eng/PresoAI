@@ -5,111 +5,186 @@ import { TourProvider, useTour, StepType } from "@reactour/tour";
 
 const STORAGE_KEY = "sf_onboarded_v1";
 
-const tourSteps: StepType[] = [
+function dismiss() {
+  localStorage.setItem(STORAGE_KEY, "1");
+}
+
+type StepContent = {
+  title: string;
+  body: string;
+};
+
+const STEP_DATA: StepContent[] = [
   {
-    selector: '[data-tour="hero-prompt"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">Welcome to SlideForge!</p>
-        <p className="text-sm text-muted-foreground">
-          Describe the presentation you want to create here. Be specific — include the topic, audience, and any key points you want covered.
-        </p>
-      </div>
-    ),
+    title: "Welcome to SlideForge!",
+    body: "Describe the presentation you want to create here. Be specific — include the topic, audience, and key points.",
   },
   {
-    selector: '[data-tour="slide-count"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">Slide Count</p>
-        <p className="text-sm text-muted-foreground">
-          Choose how many slides you need. We recommend 8–15 for most presentations.
-        </p>
-      </div>
-    ),
+    title: "Slide Count",
+    body: "Choose how many slides you need. We recommend 8–15 for most presentations.",
   },
   {
-    selector: '[data-tour="model-selector"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">AI Model</p>
-        <p className="text-sm text-muted-foreground">
-          Pick the AI model that powers your deck. Gemini 2.5 Pro and Claude Opus produce the richest content. Bring your own API key in Settings for unlimited use.
-        </p>
-      </div>
-    ),
+    title: "AI Model",
+    body: "Pick the AI that powers your deck. Gemini 2.5 Pro and Claude Opus produce the richest slides. Add your API key in Settings for unlimited use.",
   },
   {
-    selector: '[data-tour="creative-toggle"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">Creative Mode</p>
-        <p className="text-sm text-muted-foreground">
-          Enables bolder layouts, more dynamic visuals, and imaginative slide structures. Great for pitches and marketing decks.
-        </p>
-      </div>
-    ),
+    title: "Creative Mode",
+    body: "Enables bolder layouts, more dynamic visuals, and imaginative slide structures. Great for pitches and marketing decks.",
   },
   {
-    selector: '[data-tour="diagrams-toggle"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">Diagrams</p>
-        <p className="text-sm text-muted-foreground">
-          When enabled, the AI will generate charts, flow diagrams, and SmartArt-style graphics to illustrate concepts visually.
-        </p>
-      </div>
-    ),
+    title: "Diagrams",
+    body: "When enabled, the AI generates charts, flow diagrams, and SmartArt-style graphics to illustrate concepts visually.",
   },
   {
-    selector: '[data-tour="images-toggle"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">AI Images</p>
-        <p className="text-sm text-muted-foreground">
-          Generates photorealistic background images using Gemini&apos;s image model. Requires a Google API key or free-tier credits.
-        </p>
-      </div>
-    ),
+    title: "AI Images",
+    body: "Generates photorealistic background images using Gemini's image model. Requires a Google API key or free-tier credits.",
   },
   {
-    selector: '[data-tour="style-catalog"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">Style Profiles</p>
-        <p className="text-sm text-muted-foreground">
-          Browse curated design styles — from corporate clean to bold & modern. The AI follows the selected palette and typography throughout your deck.
-        </p>
-      </div>
-    ),
+    title: "Style Profiles",
+    body: "Browse curated design styles — from corporate clean to bold & modern. The AI follows the selected palette and typography throughout your deck.",
   },
   {
-    selector: '[data-tour="generate-btn"]',
-    content: (
-      <div className="space-y-2">
-        <p className="font-semibold text-sm">You&apos;re ready!</p>
-        <p className="text-sm text-muted-foreground">
-          Hit Generate and watch SlideForge build your presentation in real time. Once done, download as PPTX, PDF, or export directly to Canva.
-        </p>
-      </div>
-    ),
+    title: "You're all set!",
+    body: "Hit Generate and watch SlideForge build your presentation live. Download as PPTX, PDF, or export directly to Canva.",
   },
 ];
 
+// Custom step content rendered inside the popover
+function StepContent({ stepIndex }: { stepIndex: number }) {
+  const { setIsOpen, setCurrentStep, steps } = useTour();
+  const isLast = stepIndex === steps.length - 1;
+  const data = STEP_DATA[stepIndex];
+
+  function skip() {
+    dismiss();
+    setIsOpen(false);
+  }
+
+  function finish() {
+    dismiss();
+    setIsOpen(false);
+  }
+
+  function next() {
+    setCurrentStep(stepIndex + 1);
+  }
+
+  return (
+    <div style={{ fontFamily: "inherit" }}>
+      {/* Step counter */}
+      <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 6, fontWeight: 500, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+        Step {stepIndex + 1} of {steps.length}
+      </p>
+
+      {/* Title */}
+      <p style={{ fontSize: 15, fontWeight: 600, color: "#f9fafb", marginBottom: 8 }}>
+        {data?.title}
+      </p>
+
+      {/* Body */}
+      <p style={{ fontSize: 13, color: "#9ca3af", lineHeight: 1.6 }}>
+        {data?.body}
+      </p>
+
+      {/* Dot progress */}
+      <div style={{ display: "flex", gap: 5, marginTop: 16, marginBottom: 16 }}>
+        {steps.map((_, i) => (
+          <div
+            key={i}
+            style={{
+              width: i === stepIndex ? 18 : 6,
+              height: 6,
+              borderRadius: 3,
+              background: i === stepIndex ? "#6366f1" : "#374151",
+              transition: "all 0.2s",
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {/* Skip — always visible */}
+        <button
+          onClick={skip}
+          style={{
+            fontSize: 12,
+            color: "#6b7280",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "4px 0",
+            textDecoration: "underline",
+            textDecorationColor: "transparent",
+          }}
+          onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.color = "#9ca3af"; }}
+          onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.color = "#6b7280"; }}
+        >
+          Skip tour
+        </button>
+
+        {isLast ? (
+          <button
+            onClick={finish}
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#ffffff",
+              background: "#6366f1",
+              border: "none",
+              cursor: "pointer",
+              padding: "7px 20px",
+              borderRadius: 7,
+            }}
+          >
+            Let&apos;s go!
+          </button>
+        ) : (
+          <button
+            onClick={next}
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: "#ffffff",
+              background: "#6366f1",
+              border: "none",
+              cursor: "pointer",
+              padding: "7px 20px",
+              borderRadius: 7,
+            }}
+          >
+            Next →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const tourSteps: StepType[] = STEP_DATA.map((_, i) => ({
+  selector: [
+    '[data-tour="hero-prompt"]',
+    '[data-tour="slide-count"]',
+    '[data-tour="model-selector"]',
+    '[data-tour="creative-toggle"]',
+    '[data-tour="diagrams-toggle"]',
+    '[data-tour="images-toggle"]',
+    '[data-tour="style-catalog"]',
+    '[data-tour="generate-btn"]',
+  ][i]!,
+  content: () => <StepContent stepIndex={i} />,
+}));
+
 function TourAutoStart() {
   const { setIsOpen } = useTour();
-
   useEffect(() => {
-    // Small delay so the dashboard fully renders before the tour kicks off
-    const t = setTimeout(() => setIsOpen(true), 800);
+    const t = setTimeout(() => setIsOpen(true), 600);
     return () => clearTimeout(t);
   }, [setIsOpen]);
-
   return null;
 }
 
 interface OnboardingTourProps {
-  /** Whether this is the user's first visit (tracked by parent via localStorage) */
   isFirstVisit: boolean;
 }
 
@@ -119,68 +194,43 @@ export function OnboardingTour({ isFirstVisit }: OnboardingTourProps) {
   return (
     <TourProvider
       steps={tourSteps}
+      showNavigation={false}
+      showBadge={false}
+      showDots={false}
+      showCloseButton={false}
+      disableInteraction={false}
       styles={{
         popover: (base) => ({
           ...base,
-          backgroundColor: "hsl(var(--background))",
-          borderRadius: "12px",
-          border: "1px solid hsl(var(--border))",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-          color: "hsl(var(--foreground))",
-          padding: "20px",
-          maxWidth: "320px",
-        }),
-        dot: (base, state) => ({
-          ...base,
-          background: state?.current ? "hsl(var(--primary))" : "hsl(var(--muted))",
-        }),
-        badge: (base) => ({
-          ...base,
-          backgroundColor: "hsl(var(--primary))",
-          color: "hsl(var(--primary-foreground))",
-        }),
-        controls: (base) => ({
-          ...base,
-          marginTop: "16px",
-        }),
-        button: (base) => ({
-          ...base,
-          background: "hsl(var(--primary))",
-          color: "hsl(var(--primary-foreground))",
-          borderRadius: "6px",
-          padding: "6px 16px",
-          fontSize: "13px",
-          fontWeight: 500,
-          cursor: "pointer",
-        }),
-        close: (base) => ({
-          ...base,
-          color: "hsl(var(--muted-foreground))",
-          top: "12px",
-          right: "12px",
+          backgroundColor: "#111113",
+          borderRadius: 12,
+          border: "1px solid #1f2937",
+          boxShadow: "0 25px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(99,102,241,0.15)",
+          color: "#f9fafb",
+          padding: "20px 22px 18px",
+          maxWidth: 340,
+          minWidth: 300,
         }),
         maskWrapper: (base) => ({
           ...base,
-          opacity: 0.6,
+          opacity: 1,
         }),
         maskArea: (base) => ({
           ...base,
-          rx: 6,
+          rx: 8,
+        }),
+        // The SVG mask fills — use a very dark overlay
+        svgWrapper: (base) => ({
+          ...base,
+          opacity: 0.85,
         }),
       }}
-      showNavigation
-      showBadge
-      showDots
-      showCloseButton
-      disableInteraction={false}
-      afterOpen={() => {
-        localStorage.setItem(STORAGE_KEY, "1");
-      }}
+      padding={{ mask: 6, popover: [10, 14] }}
       onClickClose={() => {
-        localStorage.setItem(STORAGE_KEY, "1");
+        dismiss();
       }}
       onClickMask={() => {
-        localStorage.setItem(STORAGE_KEY, "1");
+        // Don't close on mask click — user must use Skip or Next
       }}
     >
       <TourAutoStart />
