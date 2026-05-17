@@ -57,35 +57,18 @@ export async function POST(request: NextRequest) {
 
     logger.info({ size: pptxBytes.length }, "PPTX downloaded for Canva upload");
 
-    // Upload to Canva as an asset (multipart)
-    const boundary = `----Preso${Date.now()}`;
+    // Canva Connect API asset upload: raw binary + Asset-Upload-Metadata header
     const fileName = `${presentation.title || "presentation"}.pptx`;
-    const contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-
-    const encoder = new TextEncoder();
-    const metadataPart = encoder.encode(
-      `--${boundary}\r\nContent-Disposition: form-data; name="asset_upload"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ name_base: fileName })}\r\n`
-    );
-    const fileHeader = encoder.encode(
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${contentType}\r\n\r\n`
-    );
-    const endBoundary = encoder.encode(`\r\n--${boundary}--\r\n`);
-
-    const multipartBody = new Uint8Array(
-      metadataPart.length + fileHeader.length + pptxBytes.length + endBoundary.length
-    );
-    multipartBody.set(metadataPart, 0);
-    multipartBody.set(fileHeader, metadataPart.length);
-    multipartBody.set(pptxBytes, metadataPart.length + fileHeader.length);
-    multipartBody.set(endBoundary, metadataPart.length + fileHeader.length + pptxBytes.length);
+    const metadata = Buffer.from(JSON.stringify({ name_base: fileName })).toString("base64");
 
     const uploadRes = await fetch("https://api.canva.com/rest/v1/asset-uploads", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${canvaToken}`,
-        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "Asset-Upload-Metadata": metadata,
       },
-      body: multipartBody,
+      body: pptxBytes,
     });
 
     if (!uploadRes.ok) {
