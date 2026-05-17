@@ -449,7 +449,7 @@ export default function DashboardPage() {
           </AnimatePresence>
 
           <form onSubmit={handleSubmit} className="mt-8 relative">
-            <div className="rounded-xl border border-border/60 bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-border">
+            <div data-tour="hero-prompt" className="rounded-xl border border-border/60 bg-card shadow-sm transition-shadow focus-within:shadow-md focus-within:border-border">
               {/* Pasted image previews */}
               {(pastedImages.length > 0 || uploadingImage) && (
                 <div className="flex gap-1.5 px-2.5 pt-2 flex-wrap">
@@ -721,7 +721,6 @@ export default function DashboardPage() {
 
                 <textarea
                   ref={textareaRef}
-                  data-tour="hero-prompt"
                   value={quickPrompt}
                   onChange={(e) => { setQuickPrompt(e.target.value); autoResize(); }}
                   onPaste={handlePasteImage}

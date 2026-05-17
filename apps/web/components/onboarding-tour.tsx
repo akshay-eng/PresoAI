@@ -5,19 +5,28 @@ import { TourProvider, useTour, StepType } from "@reactour/tour";
 
 const STORAGE_KEY = "sf_onboarded_v1";
 
+// Exact app dark-theme colors from globals.css
+const C = {
+  bg: "#22252E",         // --color-card / --color-popover
+  border: "#2F323D",     // --color-border
+  fg: "#EDEBE7",         // --color-foreground
+  muted: "#9194A1",      // --color-muted-foreground
+  primary: "#14B8A6",    // --color-primary (teal)
+  primaryFg: "#042F2E",  // --color-primary-foreground
+  secondary: "#2A2D38",  // --color-secondary
+  dot: "#24272F",        // --color-muted (inactive dot)
+};
+
 function dismiss() {
   localStorage.setItem(STORAGE_KEY, "1");
 }
 
-type StepContent = {
-  title: string;
-  body: string;
-};
+type StepData = { title: string; body: string };
 
-const STEP_DATA: StepContent[] = [
+const STEPS: StepData[] = [
   {
     title: "Welcome to SlideForge!",
-    body: "Describe the presentation you want to create here. Be specific — include the topic, audience, and key points.",
+    body: "Type your presentation idea here. Be specific — include the topic, target audience, and key points you want covered.",
   },
   {
     title: "Slide Count",
@@ -29,166 +38,132 @@ const STEP_DATA: StepContent[] = [
   },
   {
     title: "Creative Mode",
-    body: "Enables bolder layouts, more dynamic visuals, and imaginative slide structures. Great for pitches and marketing decks.",
+    body: "Unlocks bolder layouts, dynamic visuals, and imaginative slide structures. Perfect for pitches and marketing decks.",
   },
   {
     title: "Diagrams",
-    body: "When enabled, the AI generates charts, flow diagrams, and SmartArt-style graphics to illustrate concepts visually.",
+    body: "When on, the AI generates charts, flow diagrams, and SmartArt-style graphics to illustrate concepts visually.",
   },
   {
     title: "AI Images",
-    body: "Generates photorealistic background images using Gemini's image model. Requires a Google API key or free-tier credits.",
+    body: "Generates photorealistic slide backgrounds using Gemini's image model. Requires a Google API key or free-tier credits.",
   },
   {
     title: "Style Profiles",
-    body: "Browse curated design styles — from corporate clean to bold & modern. The AI follows the selected palette and typography throughout your deck.",
+    body: "Apply a brand style — the AI follows the palette, typography and layout patterns throughout your entire deck.",
   },
   {
     title: "You're all set!",
-    body: "Hit Generate and watch SlideForge build your presentation live. Download as PPTX, PDF, or export directly to Canva.",
+    body: "Hit Generate and watch SlideForge build your presentation live. Download as PPTX, PDF, or export straight to Canva.",
   },
 ];
 
-// Custom step content rendered inside the popover
-function StepContent({ stepIndex }: { stepIndex: number }) {
+const SELECTORS = [
+  '[data-tour="hero-prompt"]',
+  '[data-tour="slide-count"]',
+  '[data-tour="model-selector"]',
+  '[data-tour="creative-toggle"]',
+  '[data-tour="diagrams-toggle"]',
+  '[data-tour="images-toggle"]',
+  '[data-tour="style-catalog"]',
+  '[data-tour="generate-btn"]',
+];
+
+function StepContent({ idx }: { idx: number }) {
   const { setIsOpen, setCurrentStep, steps } = useTour();
-  const isLast = stepIndex === steps.length - 1;
-  const data = STEP_DATA[stepIndex];
+  const isLast = idx === steps.length - 1;
+  const d = STEPS[idx];
 
-  function skip() {
-    dismiss();
-    setIsOpen(false);
-  }
-
-  function finish() {
-    dismiss();
-    setIsOpen(false);
-  }
-
-  function next() {
-    setCurrentStep(stepIndex + 1);
-  }
+  const skip = () => { dismiss(); setIsOpen(false); };
+  const finish = () => { dismiss(); setIsOpen(false); };
+  const next = () => setCurrentStep(idx + 1);
 
   return (
     <div style={{ fontFamily: "inherit" }}>
-      {/* Step counter */}
-      <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 6, fontWeight: 500, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-        Step {stepIndex + 1} of {steps.length}
+      {/* Step label */}
+      <p style={{
+        fontSize: 10, fontWeight: 600, letterSpacing: "0.08em",
+        textTransform: "uppercase", color: C.primary, marginBottom: 8,
+      }}>
+        Step {idx + 1} of {steps.length}
       </p>
 
       {/* Title */}
-      <p style={{ fontSize: 15, fontWeight: 600, color: "#f9fafb", marginBottom: 8 }}>
-        {data?.title}
+      <p style={{ fontSize: 15, fontWeight: 700, color: C.fg, marginBottom: 8, lineHeight: 1.3 }}>
+        {d?.title}
       </p>
 
       {/* Body */}
-      <p style={{ fontSize: 13, color: "#9ca3af", lineHeight: 1.6 }}>
-        {data?.body}
+      <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.65, marginBottom: 20 }}>
+        {d?.body}
       </p>
 
       {/* Dot progress */}
-      <div style={{ display: "flex", gap: 5, marginTop: 16, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 5, marginBottom: 20, alignItems: "center" }}>
         {steps.map((_, i) => (
           <div
             key={i}
             style={{
-              width: i === stepIndex ? 18 : 6,
+              width: i === idx ? 20 : 6,
               height: 6,
               borderRadius: 3,
-              background: i === stepIndex ? "#6366f1" : "#374151",
-              transition: "all 0.2s",
+              backgroundColor: i === idx ? C.primary : C.dot,
+              transition: "all 0.25s ease",
             }}
           />
         ))}
       </div>
 
+      {/* Divider */}
+      <div style={{ height: 1, backgroundColor: C.border, marginBottom: 16 }} />
+
       {/* Actions */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        {/* Skip — always visible */}
         <button
           onClick={skip}
           style={{
-            fontSize: 12,
-            color: "#6b7280",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "4px 0",
-            textDecoration: "underline",
-            textDecorationColor: "transparent",
+            fontSize: 12, color: C.muted, background: "none",
+            border: "none", cursor: "pointer", padding: "4px 0",
           }}
-          onMouseEnter={(e) => { (e.target as HTMLButtonElement).style.color = "#9ca3af"; }}
-          onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.color = "#6b7280"; }}
+          onMouseEnter={(e) => { (e.currentTarget).style.color = C.fg; }}
+          onMouseLeave={(e) => { (e.currentTarget).style.color = C.muted; }}
         >
           Skip tour
         </button>
 
-        {isLast ? (
-          <button
-            onClick={finish}
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "#ffffff",
-              background: "#6366f1",
-              border: "none",
-              cursor: "pointer",
-              padding: "7px 20px",
-              borderRadius: 7,
-            }}
-          >
-            Let&apos;s go!
-          </button>
-        ) : (
-          <button
-            onClick={next}
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: "#ffffff",
-              background: "#6366f1",
-              border: "none",
-              cursor: "pointer",
-              padding: "7px 20px",
-              borderRadius: 7,
-            }}
-          >
-            Next →
-          </button>
-        )}
+        <button
+          onClick={isLast ? finish : next}
+          style={{
+            fontSize: 13, fontWeight: 600, color: C.primaryFg,
+            background: C.primary, border: "none", cursor: "pointer",
+            padding: "8px 20px", borderRadius: 8, letterSpacing: "0.01em",
+            transition: "opacity 0.15s",
+          }}
+          onMouseEnter={(e) => { (e.currentTarget).style.opacity = "0.88"; }}
+          onMouseLeave={(e) => { (e.currentTarget).style.opacity = "1"; }}
+        >
+          {isLast ? "Let's go!" : "Next →"}
+        </button>
       </div>
     </div>
   );
 }
 
-const tourSteps: StepType[] = STEP_DATA.map((_, i) => ({
-  selector: [
-    '[data-tour="hero-prompt"]',
-    '[data-tour="slide-count"]',
-    '[data-tour="model-selector"]',
-    '[data-tour="creative-toggle"]',
-    '[data-tour="diagrams-toggle"]',
-    '[data-tour="images-toggle"]',
-    '[data-tour="style-catalog"]',
-    '[data-tour="generate-btn"]',
-  ][i]!,
-  content: () => <StepContent stepIndex={i} />,
+const tourSteps: StepType[] = STEPS.map((_, i) => ({
+  selector: SELECTORS[i]!,
+  content: () => <StepContent idx={i} />,
 }));
 
 function TourAutoStart() {
   const { setIsOpen } = useTour();
   useEffect(() => {
-    const t = setTimeout(() => setIsOpen(true), 600);
+    const t = setTimeout(() => setIsOpen(true), 700);
     return () => clearTimeout(t);
   }, [setIsOpen]);
   return null;
 }
 
-interface OnboardingTourProps {
-  isFirstVisit: boolean;
-}
-
-export function OnboardingTour({ isFirstVisit }: OnboardingTourProps) {
+export function OnboardingTour({ isFirstVisit }: { isFirstVisit: boolean }) {
   if (!isFirstVisit) return null;
 
   return (
@@ -199,15 +174,16 @@ export function OnboardingTour({ isFirstVisit }: OnboardingTourProps) {
       showDots={false}
       showCloseButton={false}
       disableInteraction={false}
+      padding={{ mask: 8, popover: [12, 16] }}
       styles={{
         popover: (base) => ({
           ...base,
-          backgroundColor: "#111113",
-          borderRadius: 12,
-          border: "1px solid #1f2937",
-          boxShadow: "0 25px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(99,102,241,0.15)",
-          color: "#f9fafb",
-          padding: "20px 22px 18px",
+          backgroundColor: C.bg,
+          borderRadius: 14,
+          border: `1px solid ${C.border}`,
+          boxShadow: `0 0 0 1px ${C.border}, 0 24px 64px rgba(0,0,0,0.6)`,
+          color: C.fg,
+          padding: "22px 24px 20px",
           maxWidth: 340,
           minWidth: 300,
         }),
@@ -217,28 +193,23 @@ export function OnboardingTour({ isFirstVisit }: OnboardingTourProps) {
         }),
         maskArea: (base) => ({
           ...base,
-          rx: 8,
+          rx: 10,
         }),
-        // The SVG mask fills — use a very dark overlay
         svgWrapper: (base) => ({
           ...base,
-          opacity: 0.85,
+          opacity: 0.82,
         }),
       }}
-      padding={{ mask: 6, popover: [10, 14] }}
-      onClickClose={() => {
-        dismiss();
-      }}
-      onClickMask={() => {
-        // Don't close on mask click — user must use Skip or Next
-      }}
+      onClickClose={() => { dismiss(); }}
+      onClickMask={() => { /* don't close on overlay click */ }}
+      afterOpen={() => { dismiss(); /* mark as seen immediately so refresh doesn't replay */ }}
     >
       <TourAutoStart />
     </TourProvider>
   );
 }
 
-/** Hook: returns true on the very first dashboard visit */
+/** Returns true only on the very first dashboard visit */
 export function useIsFirstVisit(): boolean {
   const [isFirst, setIsFirst] = useState(false);
 
@@ -246,6 +217,7 @@ export function useIsFirstVisit(): boolean {
     if (typeof window === "undefined") return;
     if (!localStorage.getItem(STORAGE_KEY)) {
       setIsFirst(true);
+      // Don't set the key yet — let afterOpen/skip/finish do it
     }
   }, []);
 
