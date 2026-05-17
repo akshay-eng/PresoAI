@@ -34,6 +34,10 @@ async function proxy(req: Request): Promise<Response> {
     }
   });
 
+  // FastMCP requires both types in Accept. Force it so older mcp-remote
+  // versions that only send application/json don't get a 406 rejection.
+  forwarded.set("accept", "application/json, text/event-stream");
+
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
 
   const upstream = await fetch(MCP_UPSTREAM, {
