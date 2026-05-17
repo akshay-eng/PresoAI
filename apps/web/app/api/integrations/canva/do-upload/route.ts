@@ -6,10 +6,9 @@ import { logger } from "@/lib/logger";
 /**
  * POST /api/integrations/canva/do-upload
  *
- * Correct Canva Connect API import flow for PPTX files:
- *   1. POST /rest/v1/imports  → get a signed upload_url + jobId
- *   2. PUT {upload_url}       → upload raw PPTX binary
- *   3. Poll GET /rest/v1/imports/{jobId} → wait for edit URL
+ * Canva Connect API PPTX import flow:
+ *   1. POST /rest/v1/imports with raw binary + Import-Metadata header → get jobId
+ *   2. Poll GET /rest/v1/imports/{jobId} → wait for edit URL
  */
 export async function POST(request: NextRequest) {
   try {
@@ -41,15 +40,19 @@ export async function POST(request: NextRequest) {
 
     logger.info({ size: pptxBytes.byteLength, presentationId }, "PPTX downloaded for Canva import");
 
-    // Step 2: Create the import job — Canva returns a signed upload URL
+    // Step 2: POST binary directly to /rest/v1/imports
+    // Canva expects Content-Type: application/octet-stream with metadata in Import-Metadata header
     const title = presentation.title || "SlideForge Presentation";
+    const importMetadata = Buffer.from(JSON.stringify({ title })).toString("base64");
+
     const createRes = await fetch("https://api.canva.com/rest/v1/imports", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+        "Content-Type": "application/octet-stream",
+        "Import-Metadata": importMetadata,
       },
-      body: JSON.stringify({ title }),
+      body: pptxBytes,
     });
 
     if (!createRes.ok) {
@@ -60,33 +63,15 @@ export async function POST(request: NextRequest) {
 
     const createData = await createRes.json();
     const jobId = createData.job?.id;
-    const uploadUrl = createData.job?.urls?.upload_url;
 
-    logger.info({ jobId, uploadUrl: !!uploadUrl }, "Canva import job created");
+    logger.info({ jobId }, "Canva import job created, polling for completion");
 
-    if (!uploadUrl) {
-      logger.error({ createData }, "No upload_url in Canva response");
-      return NextResponse.json({ error: "No upload URL returned from Canva" }, { status: 502 });
+    if (!jobId) {
+      logger.error({ createData }, "No jobId in Canva response");
+      return NextResponse.json({ error: "No job ID returned from Canva" }, { status: 502 });
     }
 
-    // Step 3: PUT the PPTX binary to the signed upload URL
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      },
-      body: pptxBytes,
-    });
-
-    if (!putRes.ok) {
-      const txt = await putRes.text();
-      logger.error({ status: putRes.status, body: txt }, "Canva upload PUT failed");
-      return NextResponse.json({ error: `Upload to Canva failed: ${txt}` }, { status: 502 });
-    }
-
-    logger.info({ jobId }, "PPTX uploaded to Canva, polling for completion");
-
-    // Step 4: Poll for import completion (max ~30 s)
+    // Step 3: Poll for import completion (max ~30 s)
     let editUrl: string | null = null;
     let designId: string | null = null;
 
