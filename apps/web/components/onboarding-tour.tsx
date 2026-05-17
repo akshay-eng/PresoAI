@@ -58,7 +58,7 @@ type StepData = { title: string; body: string };
 
 const STEPS: StepData[] = [
   {
-    title: "Welcome to SlideForge!",
+    title: "Welcome to PresoAI!",
     body: "Type your presentation idea here. Be specific — include the topic, target audience, and key points you want covered.",
   },
   {
@@ -87,7 +87,7 @@ const STEPS: StepData[] = [
   },
   {
     title: "You're all set!",
-    body: "Hit Generate and watch SlideForge build your presentation live. Download as PPTX, PDF, or export straight to Canva.",
+    body: "Hit Generate and watch PresoAI build your presentation live. Download as PPTX, PDF, or export straight to Canva.",
   },
 ];
 
