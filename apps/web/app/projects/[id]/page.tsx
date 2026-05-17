@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, use, useRef, useEffect } from "react";
+import { useState, use, useRef, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -88,7 +88,7 @@ interface ProjectPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function ProjectPage({ params }: ProjectPageProps) {
+function ProjectPageContent({ params }: ProjectPageProps) {
   const { id } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -2022,5 +2022,13 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+export default function ProjectPage({ params }: ProjectPageProps) {
+  return (
+    <Suspense>
+      <ProjectPageContent params={params} />
+    </Suspense>
   );
 }

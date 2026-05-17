@@ -12,16 +12,9 @@ const schema = z.object({
 /**
  * POST /api/integrations/canva/upload
  *
- * Uploads a PPTX to Canva via the Connect API (OAuth2) and returns the edit URL.
- * Requires the user to have connected their Canva account via /api/integrations/canva/oauth/authorize.
- *
- * Flow:
- * 1. Get user's Canva access token from OAuthAccount
- * 2. Download the PPTX binary from MinIO
- * 3. Upload to Canva as an asset (multipart form)
- * 4. Create an import job from the asset
- * 5. Poll until the import is complete
- * 6. Return the design edit URL
+ * Reads a short-lived Canva access token from the httpOnly cookie set by the
+ * OAuth callback, downloads the PPTX from S3, imports it into Canva, and
+ * returns the edit URL. No credentials are stored in the database.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -33,52 +26,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    // Retrieve the user's Canva OAuth token
-    const canvaAccount = await prisma.oAuthAccount.findFirst({
-      where: { userId: session.user.id, provider: "canva" },
-      orderBy: { updatedAt: "desc" },
-    });
-
-    let canvaToken = canvaAccount?.accessToken;
-
-    // Refresh if expired
-    if (canvaAccount && canvaAccount.expiresAt && canvaAccount.expiresAt < new Date() && canvaAccount.refreshToken) {
-      try {
-        const refreshRes = await fetch("https://api.canva.com/rest/v1/oauth/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            grant_type: "refresh_token",
-            client_id: process.env.CANVA_CLIENT_ID!,
-            client_secret: process.env.CANVA_CLIENT_SECRET!,
-            refresh_token: canvaAccount.refreshToken,
-          }).toString(),
-        });
-        if (refreshRes.ok) {
-          const data = await refreshRes.json();
-          canvaToken = data.access_token;
-          await prisma.oAuthAccount.update({
-            where: { id: canvaAccount.id },
-            data: {
-              accessToken: data.access_token,
-              refreshToken: data.refresh_token ?? canvaAccount.refreshToken,
-              expiresAt: new Date(Date.now() + (data.expires_in || 3600) * 1000),
-            },
-          });
-        }
-      } catch (err) {
-        logger.warn({ err }, "Canva token refresh failed — trying with existing token");
-      }
-    }
-
+    // Token lives in a short-lived httpOnly cookie set by the OAuth callback
+    const canvaToken = request.cookies.get("canva_access_token")?.value;
     if (!canvaToken) {
       return NextResponse.json(
-        { error: "Canva account not connected. Please connect via Settings → Integrations." },
+        { error: "No Canva session found. Please try editing in Canva again." },
         { status: 401 }
       );
     }
 
-    // Get the presentation
     const presentation = await prisma.presentation.findFirst({
       where: { id: parsed.data.presentationId },
       include: { project: true },
@@ -92,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No PPTX file available" }, { status: 400 });
     }
 
-    // Step 1: Download the PPTX from MinIO
+    // Download PPTX from S3
     const downloadUrl = await getPresignedDownloadUrl(presentation.s3Key);
     const pptxResponse = await fetch(downloadUrl);
     if (!pptxResponse.ok) throw new Error("Failed to download PPTX from storage");
@@ -101,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     logger.info({ size: pptxBytes.length }, "PPTX downloaded for Canva upload");
 
-    // Step 2: Upload to Canva as an asset (multipart)
+    // Upload to Canva as an asset (multipart)
     const boundary = `----Preso${Date.now()}`;
     const fileName = `${presentation.title || "presentation"}.pptx`;
     const contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -142,7 +98,7 @@ export async function POST(request: NextRequest) {
     const assetJobId = uploadResult.job?.id || uploadResult.id;
     logger.info({ assetJobId }, "Asset upload job created in Canva");
 
-    // Step 3: Create an import job
+    // Create import job
     const importRes = await fetch("https://api.canva.com/rest/v1/imports", {
       method: "POST",
       headers: {
@@ -164,11 +120,11 @@ export async function POST(request: NextRequest) {
     const importResult = await importRes.json();
     const importJobId = importResult.job?.id || importResult.id;
 
-    // Step 4: Poll for completion (max 30 seconds)
+    // Poll for completion (max ~20 seconds)
     let editUrl: string | null = null;
     let designId: string | null = null;
 
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 2000));
 
       const statusRes = await fetch(`https://api.canva.com/rest/v1/imports/${importJobId}`, {
@@ -208,7 +164,10 @@ export async function POST(request: NextRequest) {
 
     logger.info({ designId, editUrl }, "Canva design created");
 
-    return NextResponse.json({ editUrl, designId });
+    // Clear the cookie — it has served its purpose
+    const res = NextResponse.json({ editUrl, designId });
+    res.cookies.set("canva_access_token", "", { maxAge: 0, path: "/" });
+    return res;
   } catch (err) {
     if ((err as Error).message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

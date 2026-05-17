@@ -741,10 +741,9 @@ export default function DashboardPage() {
               {/* Bottom bar */}
               <div className="flex items-center justify-between px-2 pb-2 pt-0.5">
                 {/* Active config chips */}
-                <div className="flex items-center gap-1 flex-wrap">
+                <div className="flex items-center gap-1 flex-wrap" data-tour="model-selector">
                   {selectedModel && (
                     <span
-                      data-tour="model-selector"
                       className="text-[10px] rounded-md bg-primary/10 text-primary px-1.5 py-0.5 cursor-pointer hover:bg-primary/15 transition-colors"
                       onClick={() => setShowAttach(true)}
                     >

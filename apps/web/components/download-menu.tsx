@@ -37,7 +37,7 @@ export function DownloadMenu({
   className,
   label = "Download",
 }: DownloadMenuProps) {
-  const [loading, setLoading] = useState<"pptx" | "pdf" | "canva" | null>(null);
+  const [loading, setLoading] = useState<"pptx" | "pdf" | null>(null);
 
   async function downloadPptx() {
     setLoading("pptx");
@@ -73,47 +73,10 @@ export function DownloadMenu({
     }
   }
 
-  async function openInCanva() {
-    setLoading("canva");
-    try {
-      // Check if Canva is connected first
-      const statusRes = await fetch("/api/integrations/canva/status");
-      const { connected } = await statusRes.json();
-
-      if (!connected) {
-        toast.info("Connect your Canva account first.", {
-          action: {
-            label: "Connect Canva",
-            onClick: () => { window.location.href = "/api/integrations/canva/oauth/authorize"; },
-          },
-          duration: 8000,
-        });
-        return;
-      }
-
-      toast.loading("Uploading to Canva…", { id: "canva-upload" });
-      const res = await fetch("/api/integrations/canva/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presentationId }),
-      });
-
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: "Canva upload failed" }));
-        toast.dismiss("canva-upload");
-        throw new Error(error);
-      }
-
-      const { editUrl } = await res.json();
-      toast.dismiss("canva-upload");
-      toast.success("Opened in Canva!");
-      window.open(editUrl, "_blank", "noopener");
-    } catch (err) {
-      toast.dismiss("canva-upload");
-      toast.error((err as Error).message);
-    } finally {
-      setLoading(null);
-    }
+  function openInCanva() {
+    // Redirect to Canva OAuth — user logs into their own Canva account,
+    // we upload the PPTX with the resulting token, then redirect to the editor.
+    window.location.href = `/api/integrations/canva/oauth/authorize?presentationId=${encodeURIComponent(presentationId)}`;
   }
 
   async function exportToGoogleSlides() {

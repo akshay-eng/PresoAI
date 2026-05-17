@@ -5,17 +5,50 @@ import { TourProvider, useTour, StepType } from "@reactour/tour";
 
 const STORAGE_KEY = "sf_onboarded_v1";
 
-// Exact app dark-theme colors from globals.css
-const C = {
-  bg: "#22252E",         // --color-card / --color-popover
-  border: "#2F323D",     // --color-border
-  fg: "#EDEBE7",         // --color-foreground
-  muted: "#9194A1",      // --color-muted-foreground
-  primary: "#14B8A6",    // --color-primary (teal)
-  primaryFg: "#042F2E",  // --color-primary-foreground
-  secondary: "#2A2D38",  // --color-secondary
-  dot: "#24272F",        // --color-muted (inactive dot)
+// Dark-theme fallbacks (used before CSS vars are read)
+const DARK = {
+  bg: "#22252E",
+  border: "#2F323D",
+  fg: "#EDEBE7",
+  muted: "#9194A1",
+  primary: "#14B8A6",
+  primaryFg: "#042F2E",
+  secondary: "#2A2D38",
+  dot: "#24272F",
 };
+
+type Colors = typeof DARK;
+
+function readThemeColors(): Colors {
+  if (typeof window === "undefined") return DARK;
+  const s = getComputedStyle(document.documentElement);
+  const v = (name: string) => s.getPropertyValue(name).trim();
+  return {
+    bg:        v("--color-card")               || DARK.bg,
+    border:    v("--color-border")             || DARK.border,
+    fg:        v("--color-foreground")         || DARK.fg,
+    muted:     v("--color-muted-foreground")   || DARK.muted,
+    primary:   v("--color-primary")            || DARK.primary,
+    primaryFg: v("--color-primary-foreground") || DARK.primaryFg,
+    secondary: v("--color-secondary")          || DARK.secondary,
+    dot:       v("--color-muted")              || DARK.dot,
+  };
+}
+
+function useTourColors(): Colors {
+  const [C, setC] = useState<Colors>(DARK);
+
+  useEffect(() => {
+    setC(readThemeColors());
+
+    // Re-read when theme class changes (light/dark toggle)
+    const observer = new MutationObserver(() => setC(readThemeColors()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
+  return C;
+}
 
 function dismiss() {
   localStorage.setItem(STORAGE_KEY, "1");
@@ -71,6 +104,7 @@ const SELECTORS = [
 
 function StepContent({ idx }: { idx: number }) {
   const { setIsOpen, setCurrentStep, steps } = useTour();
+  const C = useTourColors();
   const isLast = idx === steps.length - 1;
   const d = STEPS[idx];
 
@@ -163,8 +197,8 @@ function TourAutoStart() {
   return null;
 }
 
-export function OnboardingTour({ isFirstVisit }: { isFirstVisit: boolean }) {
-  if (!isFirstVisit) return null;
+function TourProviderWithTheme() {
+  const C = useTourColors();
 
   return (
     <TourProvider
@@ -202,11 +236,16 @@ export function OnboardingTour({ isFirstVisit }: { isFirstVisit: boolean }) {
       }}
       onClickClose={() => { dismiss(); }}
       onClickMask={() => { /* don't close on overlay click */ }}
-      afterOpen={() => { dismiss(); /* mark as seen immediately so refresh doesn't replay */ }}
+      afterOpen={() => { dismiss(); }}
     >
       <TourAutoStart />
     </TourProvider>
   );
+}
+
+export function OnboardingTour({ isFirstVisit }: { isFirstVisit: boolean }) {
+  if (!isFirstVisit) return null;
+  return <TourProviderWithTheme />;
 }
 
 /** Returns true only on the very first dashboard visit */

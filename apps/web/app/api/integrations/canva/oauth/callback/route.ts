@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@slideforge/db";
 import { getRequiredSession } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 
@@ -8,36 +7,39 @@ const CANVA_CLIENT_SECRET = process.env.CANVA_CLIENT_SECRET!;
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getRequiredSession();
-    const { searchParams } = request.nextUrl;
+    await getRequiredSession();
 
+    const { searchParams } = request.nextUrl;
     const code = searchParams.get("code");
     const state = searchParams.get("state");
     const error = searchParams.get("error");
 
     if (error) {
       logger.warn({ error }, "Canva OAuth error returned");
-      return NextResponse.redirect(
-        new URL(`/settings?canva_error=${encodeURIComponent(error)}`, request.url)
-      );
+      return NextResponse.redirect(new URL(`/dashboard?canva_error=${encodeURIComponent(error)}`, request.url));
     }
 
     if (!code || !state) {
-      return NextResponse.redirect(new URL("/settings?canva_error=missing_params", request.url));
+      return NextResponse.redirect(new URL("/dashboard?canva_error=missing_params", request.url));
     }
 
-    // Recover the PKCE code_verifier from the state
     let codeVerifier: string;
+    let presentationId: string;
     try {
       const decoded = JSON.parse(Buffer.from(state, "base64url").toString());
       codeVerifier = decoded.codeVerifier;
+      presentationId = decoded.presentationId;
     } catch {
-      return NextResponse.redirect(new URL("/settings?canva_error=invalid_state", request.url));
+      return NextResponse.redirect(new URL("/dashboard?canva_error=invalid_state", request.url));
+    }
+
+    if (!presentationId) {
+      return NextResponse.redirect(new URL("/dashboard?canva_error=missing_presentation", request.url));
     }
 
     const redirectUri = `${process.env.NEXTAUTH_URL}/api/integrations/canva/oauth/callback`;
 
-    // Exchange the authorization code for tokens
+    // Exchange code for token
     const tokenRes = await fetch("https://api.canva.com/rest/v1/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -54,51 +56,31 @@ export async function GET(request: NextRequest) {
     if (!tokenRes.ok) {
       const errText = await tokenRes.text();
       logger.error({ status: tokenRes.status, body: errText }, "Canva token exchange failed");
-      return NextResponse.redirect(new URL("/settings?canva_error=token_exchange_failed", request.url));
+      return NextResponse.redirect(new URL("/dashboard?canva_error=token_exchange_failed", request.url));
     }
 
-    const tokenData = await tokenRes.json();
-    const { access_token, refresh_token, expires_in } = tokenData;
+    const { access_token } = await tokenRes.json();
 
-    const expiresAt = new Date(Date.now() + (expires_in || 3600) * 1000);
+    // Store the token in a short-lived httpOnly cookie — not in the database.
+    // It lives only long enough for the loading page to call the upload API.
+    const response = NextResponse.redirect(
+      new URL(`/canva/loading?presentationId=${encodeURIComponent(presentationId)}`, request.url)
+    );
 
-    // Fetch the Canva user ID to use as providerAccountId
-    const userRes = await fetch("https://api.canva.com/rest/v1/users/me", {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-    const canvaUserId = userRes.ok
-      ? (await userRes.json())?.team_user?.user_id ?? "unknown"
-      : "unknown";
-
-    // Upsert into OAuthAccount (reuse existing model)
-    await prisma.oAuthAccount.upsert({
-      where: { provider_providerAccountId: { provider: "canva", providerAccountId: canvaUserId } },
-      create: {
-        userId: session.user.id,
-        provider: "canva",
-        providerAccountId: canvaUserId,
-        accessToken: access_token,
-        refreshToken: refresh_token ?? null,
-        expiresAt,
-        scope: tokenData.scope ?? null,
-      },
-      update: {
-        userId: session.user.id,
-        accessToken: access_token,
-        refreshToken: refresh_token ?? null,
-        expiresAt,
-        scope: tokenData.scope ?? null,
-      },
+    response.cookies.set("canva_access_token", access_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 300, // 5 minutes — enough to complete the upload
+      path: "/",
     });
 
-    logger.info({ userId: session.user.id, canvaUserId }, "Canva OAuth connected");
-
-    return NextResponse.redirect(new URL("/settings?canva_connected=1", request.url));
+    return response;
   } catch (err) {
     if ((err as Error).message === "Unauthorized") {
       return NextResponse.redirect(new URL("/auth/login", request.url));
     }
     logger.error({ err: (err as Error).message }, "Canva OAuth callback error");
-    return NextResponse.redirect(new URL("/settings?canva_error=internal", request.url));
+    return NextResponse.redirect(new URL("/dashboard?canva_error=internal", request.url));
   }
 }
