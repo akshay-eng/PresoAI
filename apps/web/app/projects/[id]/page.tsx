@@ -52,6 +52,7 @@ import { SlidePlanPanel } from "@/components/generation/slide-plan-panel";
 import { JobErrorCard } from "@/components/generation/job-error-card";
 import { PptxPreview } from "@/components/generation/pptx-preview";
 import { CollaboraEditor } from "@/components/generation/collabora-editor";
+import { DownloadMenu } from "@/components/download-menu";
 import { api } from "@/lib/api-client";
 import { classifyIntent } from "@/lib/intent";
 import { buildCompletionSummary } from "@/lib/completion-summary";
@@ -1318,26 +1319,35 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                         && idx === latestCompleteMessageIdx
                         && !isAnyJobActive && (
                         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              try {
-                                const presId = await _resolvePresentationId(msg);
-                                if (!presId) return;
-                                const res = await fetch(`/api/presentations/${presId}/download`);
-                                if (!res.ok) throw new Error("Download failed");
-                                const { downloadUrl, fileName } = await res.json();
-                                const a = document.createElement("a");
-                                a.href = downloadUrl;
-                                a.download = fileName || "presentation.pptx";
-                                a.click();
-                              } catch (err) { toast.error((err as Error).message); }
-                            }}
-                          >
-                            <Download className="mr-1 h-3.5 w-3.5" />
-                            Download
-                          </Button>
+                          {/* Use direct presentationId from metadata when available; async fallback on click */}
+                          {(msg.metadata?.presentationId as string | undefined) ? (
+                            <DownloadMenu
+                              presentationId={msg.metadata!.presentationId as string}
+                              variant="outline"
+                              size="sm"
+                            />
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                try {
+                                  const presId = await _resolvePresentationId(msg);
+                                  if (!presId) return;
+                                  const res = await fetch(`/api/presentations/${presId}/download`);
+                                  if (!res.ok) throw new Error("Download failed");
+                                  const { downloadUrl, fileName } = await res.json();
+                                  const a = document.createElement("a");
+                                  a.href = downloadUrl;
+                                  a.download = fileName || "presentation.pptx";
+                                  a.click();
+                                } catch (err) { toast.error((err as Error).message); }
+                              }}
+                            >
+                              <Download className="mr-1 h-3.5 w-3.5" />
+                              Download
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -1797,22 +1807,12 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                               >
                                 Preview
                               </Button>
-                              <Button size="sm" variant="outline" className="flex-1 text-xs h-7"
-                                onClick={async () => {
-                                  try {
-                                    const res = await fetch(`/api/presentations/${pres.id}/download`);
-                                    if (!res.ok) throw new Error("Download failed");
-                                    const { downloadUrl, fileName } = await res.json();
-                                    const a = document.createElement("a");
-                                    a.href = downloadUrl;
-                                    a.download = fileName || "presentation.pptx";
-                                    a.click();
-                                  } catch (err) { toast.error((err as Error).message); }
-                                }}
-                              >
-                                <Download className="mr-1 h-3 w-3" />
-                                Download
-                              </Button>
+                              <DownloadMenu
+                                presentationId={pres.id}
+                                variant="outline"
+                                size="sm"
+                                className="flex-1 text-xs h-7"
+                              />
                             </div>
                           </div>
                         ))

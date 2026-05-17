@@ -16,19 +16,20 @@ const THUMBNAIL_WIDTH = 800;
 const THUMBNAIL_QUALITY = 80;
 
 /**
- * Render one PNG per slide of a PPTX.
+ * Render one PNG per slide of a PPTX and upload the intermediate PDF.
  *
- * The previous implementation called `soffice --convert-to png`, which
- * silently emits only the FIRST slide — that's a LibreOffice limitation,
- * not a bug we can fix in the args. The correct pipeline is:
- *   PPTX --(soffice --convert-to pdf)--> PDF --(pdftoppm -png)--> slide-1.png, slide-2.png, …
- * Then each PNG is downscaled to THUMBNAIL_WIDTH via sharp and uploaded to S3.
+ * Pipeline:
+ *   PPTX --(soffice --convert-to pdf)--> PDF --(pdftoppm -png)--> slide-N.png
+ * Each PNG is downscaled and uploaded to S3.
+ * The PDF is also uploaded (for the "Download as PDF" feature).
+ *
+ * Returns both the thumbnail S3 keys and the PDF S3 key.
  */
 export async function generateThumbnails(
   pptxBuffer: Buffer,
   projectId: string,
   jobId: string
-): Promise<string[]> {
+): Promise<{ thumbnails: string[]; pdfS3Key: string | null }> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "slideforge-thumb-"));
   const pptxPath = path.join(tmpDir, "slides.pptx");
   const outDir = path.join(tmpDir, "output");
@@ -58,7 +59,19 @@ export async function generateThumbnails(
     } catch {
       const all = await fs.readdir(outDir);
       logger.warn({ files: all }, "PDF not produced after LibreOffice conversion");
-      return [];
+      return { thumbnails: [], pdfS3Key: null };
+    }
+
+    // ── Step 1b: Upload the PDF to S3 (used for "Download as PDF") ──────
+    let pdfS3Key: string | null = null;
+    try {
+      const pdfBuffer = await fs.readFile(pdfPath);
+      pdfS3Key = `generated/${projectId}/${jobId}/presentation.pdf`;
+      await uploadToS3(pdfBuffer, pdfS3Key, "application/pdf");
+      logger.info({ pdfS3Key }, "PDF uploaded to S3");
+    } catch (err) {
+      logger.warn({ err }, "Failed to upload PDF to S3 — thumbnails still proceed");
+      pdfS3Key = null;
     }
 
     // ── Step 2: PDF → one PNG per page via pdftoppm ────────────────────
@@ -85,7 +98,7 @@ export async function generateThumbnails(
 
     if (pngFiles.length === 0) {
       logger.warn({ files }, "No per-slide PNGs produced by pdftoppm");
-      return [];
+      return { thumbnails: [], pdfS3Key };
     }
 
     const thumbnailKeys: string[] = [];
@@ -104,7 +117,7 @@ export async function generateThumbnails(
     }
 
     logger.info({ count: thumbnailKeys.length }, "Thumbnails generated and uploaded");
-    return thumbnailKeys;
+    return { thumbnails: thumbnailKeys, pdfS3Key };
   } finally {
     try {
       await fs.rm(tmpDir, { recursive: true, force: true });

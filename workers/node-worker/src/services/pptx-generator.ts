@@ -298,8 +298,11 @@ export async function processNodeWorkerJob(
   });
 
   let thumbnails: string[] = [];
+  let pdfS3Key: string | null = null;
   try {
-    thumbnails = await generateThumbnails(themedBuffer, projectId, jobId);
+    const thumbResult = await generateThumbnails(themedBuffer, projectId, jobId);
+    thumbnails = thumbResult.thumbnails;
+    pdfS3Key = thumbResult.pdfS3Key;
   } catch (err) {
     logger.warn({ jobId, error: (err as Error).message }, "Thumbnail generation skipped");
   }
@@ -345,6 +348,7 @@ export async function processNodeWorkerJob(
         // The shape itself is JSON-serializable.
         slidesData: slidesData as unknown as object,
         themeSnapshot: themeSnapshot as unknown as object,
+        ...(pdfS3Key ? { pdfS3Key } : {}),
       },
     });
 

@@ -56,7 +56,8 @@ async function main() {
       logger.info({ id: p.id, s3Key: p.s3Key }, "Processing");
       const pptxBuffer = await downloadPptx(p.s3Key);
       const fakeJobId = p.jobId || `backfill-${p.id}`;
-      const keys = await generateThumbnails(pptxBuffer, p.projectId, fakeJobId);
+      const result = await generateThumbnails(pptxBuffer, p.projectId, fakeJobId);
+      const keys = result.thumbnails;
       if (keys.length === 0) {
         logger.warn({ id: p.id }, "Generator returned 0 thumbnails — skipping");
         fail++;
@@ -64,7 +65,7 @@ async function main() {
       }
       await prisma.presentation.update({
         where: { id: p.id },
-        data: { thumbnails: keys },
+        data: { thumbnails: keys, ...(result.pdfS3Key ? { pdfS3Key: result.pdfS3Key } : {}) },
       });
       logger.info({ id: p.id, count: keys.length }, "Updated");
       ok++;

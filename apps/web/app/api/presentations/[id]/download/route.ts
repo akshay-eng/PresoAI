@@ -4,12 +4,13 @@ import { getRequiredSession } from "@/lib/auth";
 import { getPresignedDownloadUrl } from "@/lib/s3";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getRequiredSession();
     const { id } = await params;
+    const format = request.nextUrl.searchParams.get("format") ?? "pptx";
 
     const presentation = await prisma.presentation.findFirst({
       where: { id },
@@ -18,6 +19,26 @@ export async function GET(
 
     if (!presentation || presentation.project.userId !== session.user.id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    if (format === "pdf") {
+      if (!presentation.pdfS3Key) {
+        return NextResponse.json(
+          { error: "PDF not available for this presentation. Re-generate to enable PDF download." },
+          { status: 404 }
+        );
+      }
+      const downloadUrl = await getPresignedDownloadUrl(presentation.pdfS3Key, 600);
+      const fileName = `${presentation.title}.pdf`;
+      prisma.downloadEvent.create({
+        data: {
+          userId: session.user.id,
+          presentationId: presentation.id,
+          projectId: presentation.projectId,
+          fileName,
+        },
+      }).catch(() => { /* non-fatal */ });
+      return NextResponse.json({ downloadUrl, fileName });
     }
 
     if (!presentation.s3Key) {

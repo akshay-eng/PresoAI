@@ -12,13 +12,13 @@ const schema = z.object({
 /**
  * POST /api/integrations/canva/upload
  *
- * Uploads a PPTX to Canva via the Connect API and returns the edit URL.
- * Requires CANVA_CLIENT_ID and CANVA_CLIENT_SECRET in env.
+ * Uploads a PPTX to Canva via the Connect API (OAuth2) and returns the edit URL.
+ * Requires the user to have connected their Canva account via /api/integrations/canva/oauth/authorize.
  *
  * Flow:
- * 1. Get presigned URL for the PPTX from MinIO
- * 2. Download the PPTX binary
- * 3. Upload to Canva as an asset
+ * 1. Get user's Canva access token from OAuthAccount
+ * 2. Download the PPTX binary from MinIO
+ * 3. Upload to Canva as an asset (multipart form)
  * 4. Create an import job from the asset
  * 5. Poll until the import is complete
  * 6. Return the design edit URL
@@ -33,11 +33,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
 
-    const canvaToken = process.env.CANVA_ACCESS_TOKEN;
+    // Retrieve the user's Canva OAuth token
+    const canvaAccount = await prisma.oAuthAccount.findFirst({
+      where: { userId: session.user.id, provider: "canva" },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    let canvaToken = canvaAccount?.accessToken;
+
+    // Refresh if expired
+    if (canvaAccount && canvaAccount.expiresAt && canvaAccount.expiresAt < new Date() && canvaAccount.refreshToken) {
+      try {
+        const refreshRes = await fetch("https://api.canva.com/rest/v1/oauth/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: process.env.CANVA_CLIENT_ID!,
+            client_secret: process.env.CANVA_CLIENT_SECRET!,
+            refresh_token: canvaAccount.refreshToken,
+          }).toString(),
+        });
+        if (refreshRes.ok) {
+          const data = await refreshRes.json();
+          canvaToken = data.access_token;
+          await prisma.oAuthAccount.update({
+            where: { id: canvaAccount.id },
+            data: {
+              accessToken: data.access_token,
+              refreshToken: data.refresh_token ?? canvaAccount.refreshToken,
+              expiresAt: new Date(Date.now() + (data.expires_in || 3600) * 1000),
+            },
+          });
+        }
+      } catch (err) {
+        logger.warn({ err }, "Canva token refresh failed — trying with existing token");
+      }
+    }
+
     if (!canvaToken) {
       return NextResponse.json(
-        { error: "Canva is not configured. Set CANVA_ACCESS_TOKEN in your environment." },
-        { status: 400 }
+        { error: "Canva account not connected. Please connect via Settings → Integrations." },
+        { status: 401 }
       );
     }
 
@@ -64,26 +101,27 @@ export async function POST(request: NextRequest) {
 
     logger.info({ size: pptxBytes.length }, "PPTX downloaded for Canva upload");
 
-    // Step 2: Upload to Canva as an asset
+    // Step 2: Upload to Canva as an asset (multipart)
     const boundary = `----Preso${Date.now()}`;
     const fileName = `${presentation.title || "presentation"}.pptx`;
     const contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-    // Build multipart body manually
-    const metadataPart = `--${boundary}\r\nContent-Disposition: form-data; name="asset_upload"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ name_base: fileName })}\r\n`;
-    const filePart = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${contentType}\r\n\r\n`;
-    const endBoundary = `\r\n--${boundary}--\r\n`;
-
     const encoder = new TextEncoder();
-    const metaBytes = encoder.encode(metadataPart);
-    const fileHeaderBytes = encoder.encode(filePart);
-    const endBytes = encoder.encode(endBoundary);
+    const metadataPart = encoder.encode(
+      `--${boundary}\r\nContent-Disposition: form-data; name="asset_upload"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ name_base: fileName })}\r\n`
+    );
+    const fileHeader = encoder.encode(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${contentType}\r\n\r\n`
+    );
+    const endBoundary = encoder.encode(`\r\n--${boundary}--\r\n`);
 
-    const multipartBody = new Uint8Array(metaBytes.length + fileHeaderBytes.length + pptxBytes.length + endBytes.length);
-    multipartBody.set(metaBytes, 0);
-    multipartBody.set(fileHeaderBytes, metaBytes.length);
-    multipartBody.set(pptxBytes, metaBytes.length + fileHeaderBytes.length);
-    multipartBody.set(endBytes, metaBytes.length + fileHeaderBytes.length + pptxBytes.length);
+    const multipartBody = new Uint8Array(
+      metadataPart.length + fileHeader.length + pptxBytes.length + endBoundary.length
+    );
+    multipartBody.set(metadataPart, 0);
+    multipartBody.set(fileHeader, metadataPart.length);
+    multipartBody.set(pptxBytes, metadataPart.length + fileHeader.length);
+    multipartBody.set(endBoundary, metadataPart.length + fileHeader.length + pptxBytes.length);
 
     const uploadRes = await fetch("https://api.canva.com/rest/v1/asset-uploads", {
       method: "POST",
@@ -101,8 +139,8 @@ export async function POST(request: NextRequest) {
     }
 
     const uploadResult = await uploadRes.json();
-    const assetId = uploadResult.job?.id || uploadResult.id;
-    logger.info({ assetId }, "Asset uploaded to Canva");
+    const assetJobId = uploadResult.job?.id || uploadResult.id;
+    logger.info({ assetJobId }, "Asset upload job created in Canva");
 
     // Step 3: Create an import job
     const importRes = await fetch("https://api.canva.com/rest/v1/imports", {
@@ -112,8 +150,8 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        import_source: { type: "asset_upload", asset_upload_job_id: assetId },
-        title: presentation.title || "Preso Presentation",
+        import_source: { type: "asset_upload", asset_upload_job_id: assetJobId },
+        title: presentation.title || "SlideForge Presentation",
       }),
     });
 
@@ -144,9 +182,10 @@ export async function POST(request: NextRequest) {
 
       if (status === "completed" || status === "success") {
         designId = statusResult.job?.result?.design?.id || statusResult.design?.id;
-        editUrl = statusResult.job?.result?.design?.urls?.edit_url
-          || statusResult.design?.urls?.edit_url
-          || (designId ? `https://www.canva.com/design/${designId}/edit` : null);
+        editUrl =
+          statusResult.job?.result?.design?.urls?.edit_url ||
+          statusResult.design?.urls?.edit_url ||
+          (designId ? `https://www.canva.com/design/${designId}/edit` : null);
         break;
       }
 
@@ -156,15 +195,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!editUrl) {
-      // Fallback: if we have a design ID, construct the URL
-      if (designId) {
-        editUrl = `https://www.canva.com/design/${designId}/edit`;
-      } else {
-        return NextResponse.json({ error: "Canva import timed out" }, { status: 504 });
-      }
+      editUrl = designId ? `https://www.canva.com/design/${designId}/edit` : null;
+      if (!editUrl) return NextResponse.json({ error: "Canva import timed out" }, { status: 504 });
     }
 
-    // Save the Canva design ID
     if (designId) {
       await prisma.presentation.update({
         where: { id: presentation.id },

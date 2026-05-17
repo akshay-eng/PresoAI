@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Download, ExternalLink, Loader2, Pencil, ArrowLeft } from "lucide-react";
+import { Loader2, Pencil, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { DownloadMenu } from "@/components/download-menu";
 
 interface PptxPreviewProps {
   presentationId: string;
@@ -143,10 +144,7 @@ export function PptxPreview({ presentationId, projectId, onOpenEditor }: PptxPre
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-xs text-muted-foreground">Preview unavailable</p>
-        <Button size="sm" onClick={handleDownload}>
-          <Download className="mr-1.5 h-3.5 w-3.5" />
-          Download PPTX
-        </Button>
+        <DownloadMenu presentationId={presentationId} size="sm" />
       </div>
     );
   }
@@ -195,17 +193,15 @@ export function PptxPreview({ presentationId, projectId, onOpenEditor }: PptxPre
 
       <div className="px-4 py-3 shrink-0 border-t border-border/40">
         <div className="flex items-center gap-2">
-          <Button size="sm" className="flex-1" onClick={handleDownload}>
-            <Download className="mr-1.5 h-3.5 w-3.5" />
-            Download
-          </Button>
+          <DownloadMenu
+            presentationId={presentationId}
+            variant="default"
+            size="sm"
+            className="flex-1 justify-center"
+          />
           <Button size="sm" variant="outline" className="flex-1" onClick={() => onOpenEditor ? onOpenEditor() : handleOpenEditor()}>
             <Pencil className="mr-1.5 h-3.5 w-3.5" />
             Edit
-          </Button>
-          <Button size="sm" variant="outline" className="flex-1" onClick={handleEditInCanva}>
-            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-            Canva
           </Button>
         </div>
       </div>

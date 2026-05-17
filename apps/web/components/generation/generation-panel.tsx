@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { toast } from "sonner";
-import { Download, ExternalLink, RefreshCw, Check, X, Edit2 } from "lucide-react";
+import { RefreshCw, Check, X, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useGenerationStore, useProjectGeneration } from "@/lib/stores/generation-store";
 import { api } from "@/lib/api-client";
+import { DownloadMenu } from "@/components/download-menu";
 
 const PHASE_LABELS: Record<string, string> = {
   starting: "Starting...",
@@ -53,6 +54,7 @@ export function GenerationPanel({ projectId }: GenerationPanelProps) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const [editingOutline, setEditingOutline] = useState(false);
   const [editedOutline, setEditedOutline] = useState<typeof outline>([]);
+  const [completedPresId, setCompletedPresId] = useState<string | null>(null);
 
   const connectSSE = useCallback(
     (jId: string) => {
@@ -94,6 +96,16 @@ export function GenerationPanel({ projectId }: GenerationPanelProps) {
       setEditedOutline(outline.map((o) => ({ ...o })));
     }
   }, [outline]);
+
+  // Resolve the presentationId when phase becomes complete
+  useEffect(() => {
+    if (phase === "complete" && jobId && !completedPresId) {
+      api.getJob(jobId).then((jobData) => {
+        const presId = (jobData as { output?: { presentationId?: string } })?.output?.presentationId;
+        if (presId) setCompletedPresId(presId);
+      }).catch(() => {});
+    }
+  }, [phase, jobId, completedPresId]);
 
   async function handleApprove() {
     if (!jobId) return;
@@ -217,37 +229,19 @@ export function GenerationPanel({ projectId }: GenerationPanelProps) {
             <p className="mt-2 text-sm font-semibold text-green-400">Presentation Ready</p>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Button
+          {completedPresId ? (
+            <DownloadMenu
+              presentationId={completedPresId}
+              variant="default"
               size="sm"
-              className="w-full"
-              onClick={async () => {
-                try {
-                  const jobData = await api.getJob(jobId!) as { output?: { presentationId?: string } };
-                  const presId = jobData?.output?.presentationId;
-                  if (!presId) { toast.error("Presentation not found yet"); return; }
-                  const res = await fetch(`/api/presentations/${presId}/download`);
-                  if (!res.ok) throw new Error("Download failed");
-                  const { downloadUrl, fileName } = await res.json();
-                  const a = document.createElement("a");
-                  a.href = downloadUrl;
-                  a.download = fileName || "presentation.pptx";
-                  a.click();
-                } catch (err) { toast.error((err as Error).message); }
-              }}
-            >
-              <Download className="mr-1.5 h-3.5 w-3.5" />
-              Download PPTX
+              className="w-full justify-center"
+              label="Download / Export"
+            />
+          ) : (
+            <Button size="sm" className="w-full" disabled>
+              Loading...
             </Button>
-            <Button size="sm" variant="outline" className="w-full" onClick={() => toast.info("Connect Microsoft account to use this feature")}>
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-              Open in PowerPoint
-            </Button>
-            <Button size="sm" variant="outline" className="w-full" onClick={() => toast.info("Connect Canva account to use this feature")}>
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-              Edit in Canva
-            </Button>
-          </div>
+          )}
         </div>
       )}
     </div>

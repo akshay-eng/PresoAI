@@ -23,10 +23,12 @@ import { StyleProfileViewer } from "@/components/project/style-profile-viewer";
 import { FilePicker } from "@/components/project/file-picker";
 import { useChatStore } from "@/lib/stores/chat-store";
 import { classifyIntent } from "@/lib/intent";
+import { OnboardingTour, useIsFirstVisit } from "@/components/onboarding-tour";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
 export default function DashboardPage() {
+  const isFirstVisit = useIsFirstVisit();
   const [sidebarPanel, setSidebarPanel] = useState("");
   const router = useRouter();
   const { data: session } = useSession({ required: true });
@@ -364,6 +366,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen flex relative">
+      <OnboardingTour isFirstVisit={isFirstVisit} />
       <AppSidebar
         activePanel={sidebarPanel}
         onOpenPanel={(p) => setSidebarPanel(sidebarPanel === p ? "" : p)}
@@ -718,6 +721,7 @@ export default function DashboardPage() {
 
                 <textarea
                   ref={textareaRef}
+                  data-tour="hero-prompt"
                   value={quickPrompt}
                   onChange={(e) => { setQuickPrompt(e.target.value); autoResize(); }}
                   onPaste={handlePasteImage}
@@ -741,6 +745,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-1 flex-wrap">
                   {selectedModel && (
                     <span
+                      data-tour="model-selector"
                       className="text-[10px] rounded-md bg-primary/10 text-primary px-1.5 py-0.5 cursor-pointer hover:bg-primary/15 transition-colors"
                       onClick={() => setShowAttach(true)}
                     >
@@ -748,6 +753,7 @@ export default function DashboardPage() {
                     </span>
                   )}
                   <span
+                    data-tour="slide-count"
                     className="text-[10px] rounded-md bg-secondary px-1.5 py-0.5 text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
                     onClick={() => setShowAttach(true)}
                   >
@@ -755,6 +761,7 @@ export default function DashboardPage() {
                   </span>
                   <button
                     type="button"
+                    data-tour="creative-toggle"
                     onClick={() => setCreativeMode(!creativeMode)}
                     className={`text-[10px] rounded-md px-1.5 py-0.5 transition-colors flex items-center gap-0.5 ${
                       creativeMode
@@ -768,6 +775,7 @@ export default function DashboardPage() {
                   </button>
                   <button
                     type="button"
+                    data-tour="diagrams-toggle"
                     onClick={() => setUseDiagramImages(!useDiagramImages)}
                     className={`text-[10px] rounded-md px-1.5 py-0.5 transition-colors flex items-center gap-0.5 ${
                       useDiagramImages
@@ -781,6 +789,7 @@ export default function DashboardPage() {
                   </button>
                   <button
                     type="button"
+                    data-tour="images-toggle"
                     onClick={() => setUseImageGen(!useImageGen)}
                     className={`text-[10px] rounded-md px-1.5 py-0.5 transition-colors flex items-center gap-0.5 ${
                       useImageGen
@@ -802,6 +811,7 @@ export default function DashboardPage() {
                   )}
                   <button
                     type="submit"
+                    data-tour="generate-btn"
                     disabled={!quickPrompt.trim() || createMutation.isPending}
                     className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors"
                   >
@@ -865,6 +875,7 @@ export default function DashboardPage() {
 
         {/* Brand & Style Profiles */}
         <motion.div
+          data-tour="style-catalog"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.4, ease }}

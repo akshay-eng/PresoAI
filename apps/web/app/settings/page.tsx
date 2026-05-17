@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Shield, Loader2, Eye, EyeOff, Trash2, Zap, CheckCircle, Key, Gift, Code2, User as UserIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowLeft, Shield, Loader2, Eye, EyeOff, Trash2, Zap, CheckCircle, Key, Gift, Code2, User as UserIcon, ExternalLink, Link2Off } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,7 @@ const PROVIDERS = [
 
 export default function SettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession({ required: true });
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
@@ -68,6 +69,41 @@ export default function SettingsPage() {
       return r.json();
     },
   });
+
+  const { data: canvaStatus, refetch: refetchCanva } = useQuery({
+    queryKey: ["canva-status"],
+    queryFn: async () => {
+      const r = await fetch("/api/integrations/canva/status");
+      if (!r.ok) return { connected: false };
+      return r.json() as Promise<{ connected: boolean; expiresAt: string | null }>;
+    },
+  });
+  const [disconnectingCanva, setDisconnectingCanva] = useState(false);
+
+  async function disconnectCanva() {
+    setDisconnectingCanva(true);
+    try {
+      await fetch("/api/integrations/canva/oauth/disconnect", { method: "POST" });
+      toast.success("Canva disconnected");
+      refetchCanva();
+    } catch {
+      toast.error("Failed to disconnect Canva");
+    } finally {
+      setDisconnectingCanva(false);
+    }
+  }
+
+  // Handle redirect back from Canva OAuth
+  useEffect(() => {
+    if (searchParams.get("canva_connected") === "1") {
+      toast.success("Canva connected successfully!");
+      refetchCanva();
+      router.replace("/settings");
+    } else if (searchParams.get("canva_error")) {
+      toast.error(`Canva connection failed: ${searchParams.get("canva_error")}`);
+      router.replace("/settings");
+    }
+  }, [searchParams, refetchCanva, router]);
 
   async function handleRedeemCoupon() {
     const code = couponInput.trim();
@@ -344,6 +380,55 @@ export default function SettingsPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Integrations */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/40">
+              <div className="flex items-center gap-2">
+                <ExternalLink className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold">Integrations</h2>
+              </div>
+            </div>
+            <div className="px-5 py-4">
+              <div className="flex items-center gap-3">
+                {/* Canva logo placeholder */}
+                <div className="w-8 h-8 rounded-lg bg-[#7D2AE8] flex items-center justify-center text-white text-[11px] font-bold shrink-0">C</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">Canva</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {canvaStatus?.connected
+                      ? "Connected — you can export presentations directly to Canva"
+                      : "Connect to export presentations as Canva designs"}
+                  </p>
+                </div>
+                {canvaStatus?.connected ? (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs text-destructive hover:text-destructive"
+                      disabled={disconnectingCanva}
+                      onClick={disconnectCanva}
+                    >
+                      {disconnectingCanva ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link2Off className="h-3 w-3 mr-1" />}
+                      Disconnect
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => { window.location.href = "/api/integrations/canva/oauth/authorize"; }}
+                  >
+                    <ExternalLink className="h-3 w-3 mr-1" />
+                    Connect
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 

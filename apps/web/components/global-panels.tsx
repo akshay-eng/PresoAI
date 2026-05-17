@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Download, FileText, ExternalLink, Loader2, X } from "lucide-react";
+import { FileText, Loader2, X, ExternalLink } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { DownloadMenu } from "@/components/download-menu";
 
 interface Presentation {
   id: string;
@@ -140,14 +141,15 @@ function AllFilesPanel() {
                     <span className="text-[10px] text-muted-foreground/50">{new Date(f.createdAt).toLocaleDateString()}</span>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => handleDownload(f.id)}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </Button>
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  <DownloadMenu
+                    presentationId={f.id}
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    label=""
+                  />
+                </div>
               </div>
             ))}
           </div>

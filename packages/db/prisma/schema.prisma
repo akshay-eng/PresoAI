@@ -447,6 +447,7 @@ model Presentation {
   // Lets the edit agent reconstruct the brand context without re-querying.
   themeSnapshot Json?
   canvaDesignId String?
+  pdfS3Key      String?
   jobId         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
