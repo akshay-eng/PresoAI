@@ -1842,7 +1842,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
                         <DownloadMenu
                           presentationId={latestPresentationId || p.presentations[0].id}
                           variant="default"
-                          size="lg"
+                          size="default"
                         />
                       </div>
                     ) : (
