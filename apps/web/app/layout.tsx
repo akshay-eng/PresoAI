@@ -25,6 +25,11 @@ const logoFont = localFont({
 export const metadata: Metadata = {
   title: "preso.ai — AI-Powered Presentation Generator",
   description: "Create stunning presentations with AI in minutes",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+  },
 };
 
 export default function RootLayout({
