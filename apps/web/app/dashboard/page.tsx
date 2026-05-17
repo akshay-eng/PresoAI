@@ -398,13 +398,13 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      <main className="flex-1 ml-[72px]">
+      <main className="flex-1 ml-0 md:ml-[72px] pb-20 md:pb-0">
         {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease }}
-          className="max-w-2xl mx-auto pt-16 pb-12 px-6 text-center"
+          className="max-w-2xl mx-auto pt-10 md:pt-16 pb-12 px-4 md:px-6 text-center"
         >
           <LottieAnimation src="/animations/presentation.json" className="w-36 h-36 mx-auto -mb-2" />
           <h1 className="text-3xl font-bold tracking-tight">What will you present today?</h1>
@@ -500,7 +500,7 @@ export default function DashboardPage() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 8, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute top-full left-0 mt-2 w-72 rounded-xl border border-border bg-popover shadow-xl z-30"
+                        className="absolute top-full left-0 mt-2 w-[min(288px,calc(100vw-2rem))] rounded-xl border border-border bg-popover shadow-xl z-30"
                         data-attach-popover
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -854,7 +854,7 @@ export default function DashboardPage() {
           {/* Suggestions */}
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             {[
-              { icon: Presentation, label: "Sales pitch deck", prompt: "Create a 10-slide sales pitch deck for a B2B SaaS product" },
+              { icon: Presentation, label: "Sales pitch", prompt: "Create a 10-slide sales pitch deck for a B2B SaaS product" },
               { icon: BarChart3, label: "Quarterly review", prompt: "Quarterly business review presentation with KPIs and metrics" },
               { icon: Users, label: "Team onboarding", prompt: "New hire onboarding presentation covering company culture and processes" },
               { icon: Lightbulb, label: "Product roadmap", prompt: "Product roadmap presentation for stakeholders with timeline and milestones" },
@@ -877,7 +877,7 @@ export default function DashboardPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.4, ease }}
-          className="max-w-5xl mx-auto px-6 pb-8"
+          className="max-w-5xl mx-auto px-4 md:px-6 pb-8"
         >
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -1251,15 +1251,15 @@ export default function DashboardPage() {
         </AnimatePresence>
 
         {/* Recent projects */}
-        <div className="max-w-5xl mx-auto px-6 pb-16">
+        <div className="max-w-5xl mx-auto px-4 md:px-6 pb-16">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.4, ease }}
           >
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-semibold">Recent projects</h2>
-              <div className="relative w-56">
+            <div className="flex items-center justify-between mb-5 gap-2">
+              <h2 className="text-base font-semibold shrink-0">Recent projects</h2>
+              <div className="relative w-36 sm:w-56">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input placeholder="Search..." className="pl-8 h-8 text-xs" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>

@@ -47,6 +47,7 @@ import { MemoryDrawer } from "@/components/project/memory-drawer";
 import { useProjectGeneration, useGenerationStore } from "@/lib/stores/generation-store";
 import { useChatStore, type ChatMessage } from "@/lib/stores/chat-store";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { LottieAnimation } from "@/components/lottie-animation";
 import { SlidePlanPanel } from "@/components/generation/slide-plan-panel";
 import { JobErrorCard } from "@/components/generation/job-error-card";
@@ -300,6 +301,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
   const [pastedImages, setPastedImages] = useState<Array<{ key: string; previewUrl: string }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [activePanel, setActivePanel] = useState<"none" | "outline" | "plan" | "preview" | "files" | "editor" | "template" | "references" | "model" | "style" | "engine">("none");
+  const isMobile = useIsMobile();
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [latestPresentationId, setLatestPresentationId] = useState<string | null>(null);
   const [editingOutline, setEditingOutline] = useState(false);
@@ -941,7 +943,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
     return (
       <div className="min-h-screen flex">
         <AppSidebar />
-        <div className="flex-1 ml-[72px] flex flex-col items-center justify-center gap-3">
+        <div className="flex-1 ml-0 md:ml-[72px] flex flex-col items-center justify-center gap-3">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1010,7 +1012,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
         onOpenPanel={(panel) => setActivePanel(activePanel === panel ? "none" : panel as typeof activePanel)}
       />
 
-      <div className="flex-1 ml-[72px] flex">
+      <div className="flex-1 ml-0 md:ml-[72px] flex pb-16 md:pb-0">
         {/* Chat panel — uses all available space */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top bar */}
@@ -1053,7 +1055,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
 
           {/* Chat area — full width */}
           <div className="flex-1 overflow-y-auto">
-            <div className="max-w-3xl mx-auto px-8 py-8 space-y-5">
+            <div className="max-w-3xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-5">
               {/* Empty state when no messages yet */}
               {chatMessages.length === 0 && !hasSubmitted && (
                 <div className="flex flex-col items-center justify-center pt-16 text-center">
@@ -1491,7 +1493,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
           </div>
 
           {/* Bottom input bar */}
-          <div className="border-t border-border/60 px-5 py-3 bg-background">
+          <div className="border-t border-border/60 px-3 md:px-5 py-3 bg-background">
             <div className="max-w-3xl mx-auto">
               {/* Attached chips row */}
               {attachedChips.length > 0 && (
@@ -1610,21 +1612,21 @@ function ProjectPageContent({ params }: ProjectPageProps) {
 
                   {/* Bottom bar with controls */}
                   <div className="flex items-center justify-between px-2 pb-1.5 pt-1">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       <select
                         value={audienceType}
                         onChange={(e) => { setAudienceType(e.target.value); if (hasSubmitted) updateMutation.mutate({ audienceType: e.target.value }); }}
                         className="h-7 rounded-md border border-border bg-secondary/50 px-1.5 text-[11px] focus:outline-none cursor-pointer"
                       >
-                        <option value="executive">Executive</option>
-                        <option value="technical">Technical</option>
+                        <option value="executive">Exec</option>
+                        <option value="technical">Tech</option>
                         <option value="general">General</option>
-                        <option value="marketing">Marketing</option>
+                        <option value="marketing">Mktg</option>
                       </select>
                       <select
                         value={numSlides}
                         onChange={(e) => { const n = parseInt(e.target.value, 10); setNumSlides(n); if (hasSubmitted) updateMutation.mutate({ numSlides: n }); }}
-                        className="h-7 rounded-md border border-border bg-secondary/50 px-1.5 text-[11px] focus:outline-none w-[72px] cursor-pointer"
+                        className="h-7 rounded-md border border-border bg-secondary/50 px-1.5 text-[11px] focus:outline-none w-[60px] cursor-pointer"
                       >
                         {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => (
                           <option key={n} value={n}>{n} slides</option>
@@ -1641,7 +1643,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
                         title="Creative Mode: advanced visualizations — tables, pyramids, graphs, infographics"
                       >
                         <Sparkles className="h-3 w-3" />
-                        Creative
+                        <span className="hidden sm:inline">Creative</span>
                       </button>
                       <button
                         type="button"
@@ -1654,7 +1656,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
                         title="Diagram Images: renders complex diagrams via Kroki as high-quality images"
                       >
                         <BarChart3 className="h-3 w-3" />
-                        Diagrams
+                        <span className="hidden sm:inline">Diagrams</span>
                       </button>
                       <button
                         type="button"
@@ -1667,7 +1669,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
                         title="AI Images: generates photo-realistic backgrounds for the cover and section dividers via Gemini Nano Banana"
                       >
                         <ImageIcon className="h-3 w-3" />
-                        Images
+                        <span className="hidden sm:inline">Images</span>
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1699,12 +1701,14 @@ function ProjectPageContent({ params }: ProjectPageProps) {
         <AnimatePresence>
           {showPanel && (
             <motion.div
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: (activePanel === "preview" || activePanel === "editor") ? "65vw" : 380, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
+              initial={isMobile ? { y: "100%", opacity: 0 } : { width: 0, opacity: 0 }}
+              animate={isMobile ? { y: 0, opacity: 1 } : { width: (activePanel === "preview" || activePanel === "editor") ? "65vw" : 380, opacity: 1 }}
+              exit={isMobile ? { y: "100%", opacity: 0 } : { width: 0, opacity: 0 }}
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-              className="border-l border-border/60 bg-card overflow-hidden shrink-0 relative"
-              style={{ minWidth: (activePanel === "preview" || activePanel === "editor") ? 700 : 380, maxWidth: (activePanel === "preview" || activePanel === "editor") ? "80vw" : 420 }}
+              className={isMobile
+                ? "fixed inset-0 z-40 bg-card flex flex-col"
+                : "border-l border-border/60 bg-card overflow-hidden shrink-0 relative"}
+              style={isMobile ? undefined : { minWidth: (activePanel === "preview" || activePanel === "editor") ? 700 : 380, maxWidth: (activePanel === "preview" || activePanel === "editor") ? "80vw" : 420 }}
             >
               <div className="w-full h-full flex flex-col">
                 {/* Panel header */}
@@ -1713,7 +1717,7 @@ function ProjectPageContent({ params }: ProjectPageProps) {
                     {activePanel === "plan" && "Slide Plan"}
                     {activePanel === "preview" && "Presentation Preview"}
                     {activePanel === "files" && "Generated Files"}
-                    {activePanel === "editor" && "Collabora Editor"}
+                    {activePanel === "editor" && (isMobile ? "Download & Edit" : "Collabora Editor")}
                     {activePanel === "outline" && "Outline"}
                     {activePanel === "template" && "Brand Template"}
                     {activePanel === "references" && "Reference Files"}
@@ -1822,16 +1826,34 @@ function ProjectPageContent({ params }: ProjectPageProps) {
                     </div>
                   )}
 
-                  {/* Editor — Collabora inline. Uses the version selected in
-                      the panel header dropdown (defaults to the latest). */}
+                  {/* Editor — Collabora inline on desktop, download prompt on mobile */}
                   {activePanel === "editor" && p?.presentations?.[0] && (
-                    <CollaboraEditor
-                      presentationId={latestPresentationId || p.presentations[0].id}
-                      // Force a remount when the version changes so Collabora
-                      // re-fetches the new file rather than holding the old
-                      // document in its iframe state.
-                      key={latestPresentationId || p.presentations[0].id}
-                    />
+                    isMobile ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-5 p-8 text-center">
+                        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                          <Download className="h-8 w-8 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold">Edit on Desktop</p>
+                          <p className="text-sm text-muted-foreground mt-1.5 max-w-xs">
+                            The slide editor requires a desktop browser. Download the file to edit it in PowerPoint or Google Slides.
+                          </p>
+                        </div>
+                        <DownloadMenu
+                          presentationId={latestPresentationId || p.presentations[0].id}
+                          variant="default"
+                          size="lg"
+                        />
+                      </div>
+                    ) : (
+                      <CollaboraEditor
+                        presentationId={latestPresentationId || p.presentations[0].id}
+                        // Force a remount when the version changes so Collabora
+                        // re-fetches the new file rather than holding the old
+                        // document in its iframe state.
+                        key={latestPresentationId || p.presentations[0].id}
+                      />
+                    )
                   )}
 
                   <div className={activePanel === "plan" || activePanel === "preview" || activePanel === "files" || activePanel === "editor" ? "hidden" : "p-5"}>
